@@ -89,48 +89,9 @@ jobs:
           name: MinaAI-debug
           path: build/app/outputs/flutter-apk/MinaAI-debug.apk
           
-  build-ios:
-    name: Build iOS
-    runs-on: macos-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          flutter-version: '3.29.2'
-          channel: 'stable'
-          cache: true
-
-      - name: Get dependencies
-        run: flutter pub get
-
-      - name: Install CocoaPods
-        run: |
-          cd ios
-          pod install || pod install --repo-update
-
-      # 使用最简单的方式构建iOS
-      - name: Build iOS
-        run: flutter build ios --release --no-codesign
-
-      - name: Create IPA
-        run: |
-          cd build/ios/iphoneos
-          mkdir -p Payload
-          cp -r Runner.app Payload/
-          zip -r lhht-ai-assistant.ipa Payload/
-
-      - name: Upload IPA
-        uses: actions/upload-artifact@v4
-        with:
-          name: ios-release
-          path: build/ios/iphoneos/lhht-ai-assistant.ipa
-
   create-release:
     name: Create GitHub Release
-    needs: [build-android, build-ios]
+    needs: [build-android]
     runs-on: ubuntu-latest
     steps:
       - name: Download Android Artifact
@@ -138,12 +99,6 @@ jobs:
         with:
           name: MinaAI-debug
           path: android-debug
-
-      - name: Download iOS Artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: ios-release
-          path: ios-release
 
       - name: Get tag name
         id: tag_name
@@ -160,5 +115,4 @@ jobs:
           draft: false
           prerelease: false
           files: |
-            android-debug/MinaAI-debug.apk
-            ios-release/lhht-ai-assistant.ipa 
+            android-debug/MinaAI-debug.apk 

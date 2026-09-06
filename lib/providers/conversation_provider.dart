@@ -72,6 +72,8 @@ class ConversationProvider extends ChangeNotifier {
         // 如果某个会话的消息加载失败，继续加载其他会话
         _messages[conversation.id] = [];
       }
+    }
+
     if (_conversations.isEmpty) {
       final defaultConv = Conversation(
         id: const Uuid().v4(),
