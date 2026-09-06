@@ -28,20 +28,21 @@ class _VoiceCallScreenState extends State<VoiceCallScreen>
   late XiaozhiService _xiaozhiService;
   bool _isConnected = false;
   bool _isSpeaking = false;
-  String _statusText = '正在连接...';
+  bool _isAiSpeaking = false;
+  String _statusText = 'Đang kết nối...';
+  String _currentSubtitle = 'Chào bạn! Tôi là Mina AI, bạn muốn trò chuyện gì nào?';
   Timer? _callTimer;
   Duration _callDuration = Duration.zero;
   bool _serverReady = false;
 
   late AnimationController _animationController;
-  final List<double> _audioLevels = List.filled(30, 0.05);
+  final List<double> _audioLevels = List.filled(24, 0.08);
   Timer? _audioVisualizerTimer;
 
   @override
   void initState() {
     super.initState();
 
-    // 设置状态栏为透明并使图标为白色
     SystemChrome.setSystemUIOverlayStyle(
       const SystemUiOverlayStyle(
         statusBarColor: Colors.transparent,
@@ -53,26 +54,11 @@ class _VoiceCallScreenState extends State<VoiceCallScreen>
       ),
     );
 
-    // 在帧绘制后再次设置系统UI样式，避免被覆盖
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      SystemChrome.setSystemUIOverlayStyle(
-        const SystemUiOverlayStyle(
-          statusBarColor: Colors.transparent,
-          statusBarIconBrightness: Brightness.light,
-          statusBarBrightness: Brightness.dark,
-          systemNavigationBarColor: Colors.transparent,
-          systemNavigationBarIconBrightness: Brightness.light,
-          systemNavigationBarDividerColor: Colors.transparent,
-        ),
-      );
-    });
-
     _animationController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1000),
     )..repeat(reverse: true);
 
-    // 获取XiaozhiService实例
     _xiaozhiService = XiaozhiService(
       websocketUrl: widget.xiaozhiConfig.websocketUrl,
       macAddress: widget.xiaozhiConfig.macAddress,
@@ -80,68 +66,91 @@ class _VoiceCallScreenState extends State<VoiceCallScreen>
       sessionId: widget.conversation.id,
     );
 
-    // 设置消息监听器
     _xiaozhiService.setMessageListener(_handleServerMessage);
 
-    // 连接并切换到语音通话模式
     _connectToVoiceService();
     _startAudioVisualizer();
   }
 
   void _handleServerMessage(dynamic message) {
-    // 处理服务器发来的消息
-    if (message is Map<String, dynamic> && message['type'] == 'hello') {
-      print('收到服务器hello消息: $message');
-      setState(() {
-        _serverReady = true;
-      });
+    if (!mounted) return;
+    if (message is Map<String, dynamic>) {
+      final type = message['type'] ?? '';
 
-      // 服务器准备好后延迟短暂时间再自动开始录音
-      // 这样可以确保会话ID已经被正确设置
-      if (_isConnected && !_isSpeaking) {
-        // 延迟1秒，确保服务端和客户端都已准备就绪
-        Future.delayed(const Duration(milliseconds: 1000), () {
+      if (type == 'hello') {
+        print('VoiceCall: Đã nhận hello từ server: $message');
+        setState(() {
+          _serverReady = true;
+          _isConnected = true;
+          _statusText = 'Đã kết nối';
+        });
+
+        Future.delayed(const Duration(milliseconds: 800), () {
           if (mounted && _isConnected && !_isSpeaking) {
-            print('准备开始录音...');
             _startSpeaking();
           }
         });
+      } else if (type == 'tts') {
+        final state = message['state'] ?? '';
+        final text = message['text'] ?? '';
+        if (state == 'start') {
+          setState(() {
+            _isAiSpeaking = true;
+            _statusText = 'Mina AI đang nói...';
+          });
+        } else if (state == 'sentence_start' && text.isNotEmpty) {
+          setState(() {
+            _currentSubtitle = text;
+            _isAiSpeaking = true;
+            _statusText = 'Mina AI đang nói...';
+          });
+        } else if (state == 'stop') {
+          setState(() {
+            _isAiSpeaking = false;
+            _statusText = 'Đang lắng nghe...';
+          });
+          if (!_isSpeaking) {
+            _startSpeaking();
+          }
+        }
+      } else if (type == 'stt') {
+        final text = message['text'] ?? '';
+        if (text.isNotEmpty) {
+          setState(() {
+            _currentSubtitle = 'Bạn: $text';
+            _statusText = 'Đã nhận diện giọng nói';
+          });
+        }
       }
     }
   }
 
   @override
   void dispose() {
-    // 切换回普通聊天模式
     _xiaozhiService.switchToChatMode();
     _callTimer?.cancel();
     _audioVisualizerTimer?.cancel();
     _animationController.dispose();
-
-    // 确保停止所有音频播放
     _xiaozhiService.stopPlayback();
-
     super.dispose();
   }
 
   void _connectToVoiceService() async {
     setState(() {
-      _statusText = '正在准备...';
+      _statusText = 'Đang chuẩn bị...';
     });
 
     try {
-      // 切换到语音通话模式
       await _xiaozhiService.switchToVoiceCallMode();
 
       setState(() {
-        _statusText = '已连接';
+        _statusText = 'Đã kết nối';
         _isConnected = true;
       });
 
-      // 显示连接成功的提示
       if (mounted) {
         _showCustomSnackbar(
-          message: '已进入语音通话模式',
+          message: 'Đã vào chế độ trò chuyện xe hơi',
           icon: Icons.check_circle,
           iconColor: Colors.greenAccent,
         );
@@ -149,25 +158,21 @@ class _VoiceCallScreenState extends State<VoiceCallScreen>
 
       _startCallTimer();
 
-      // 添加会话消息
       Provider.of<ConversationProvider>(context, listen: false).addMessage(
         conversationId: widget.conversation.id,
         role: MessageRole.assistant,
-        content: '语音通话已开始',
+        content: 'Cuộc trò chuyện Mina AI bắt đầu',
       );
-
-      // 直接开始录音
-      _startSpeaking();
     } catch (e) {
       setState(() {
-        _statusText = '准备失败';
+        _statusText = 'Kết nối thất bại';
         _isConnected = false;
       });
-      print('准备失败: $e');
+      print('VoiceCall: Kết nối thất bại: $e');
 
       if (mounted) {
         _showCustomSnackbar(
-          message: '进入语音通话模式失败: $e',
+          message: 'Không thể kết nối: $e',
           icon: Icons.error_outline,
           iconColor: Colors.redAccent,
         );
@@ -176,101 +181,85 @@ class _VoiceCallScreenState extends State<VoiceCallScreen>
   }
 
   void _startCallTimer() {
+    _callTimer?.cancel();
     _callTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      setState(() {
-        _callDuration = Duration(seconds: timer.tick);
-      });
+      if (mounted) {
+        setState(() {
+          _callDuration = Duration(seconds: timer.tick);
+        });
+      }
     });
   }
 
   void _startAudioVisualizer() {
-    _audioVisualizerTimer = Timer.periodic(const Duration(milliseconds: 100), (
-      timer,
-    ) {
-      if (_isConnected) {
+    _audioVisualizerTimer?.cancel();
+    _audioVisualizerTimer = Timer.periodic(const Duration(milliseconds: 80), (timer) {
+      if (_isConnected && mounted) {
         setState(() {
-          // Simulate audio levels
           for (int i = 0; i < _audioLevels.length - 1; i++) {
             _audioLevels[i] = _audioLevels[i + 1];
           }
 
-          if (_isSpeaking) {
+          if (_isAiSpeaking) {
             _audioLevels[_audioLevels.length - 1] =
-                0.05 + (0.6 * (0.5 + 0.5 * _animationController.value));
+                0.15 + (0.75 * (0.4 + 0.6 * _animationController.value));
+          } else if (_isSpeaking) {
+            _audioLevels[_audioLevels.length - 1] =
+                0.1 + (0.6 * (0.3 + 0.7 * _animationController.value));
           } else {
             _audioLevels[_audioLevels.length - 1] =
-                0.05 + (0.1 * (0.5 + 0.5 * _animationController.value));
+                0.05 + (0.12 * (0.5 + 0.5 * _animationController.value));
           }
         });
       }
     });
   }
 
-  // 开始录音
   void _startSpeaking() {
     if (!_isSpeaking) {
       setState(() {
         _isSpeaking = true;
+        _statusText = 'Đang lắng nghe...';
       });
 
-      try {
-        // 开始录音并订阅音频流
-        _xiaozhiService
-            .startListeningCall()
-            .then((_) {
-              if (mounted) {
-                _showCustomSnackbar(
-                  message: '正在录音...',
-                  icon: Icons.mic,
-                  iconColor: Colors.greenAccent,
-                );
-              }
-            })
-            .catchError((e) {
-              print('开始录音失败: $e');
-              // 如果失败，恢复状态
-              if (mounted) {
-                setState(() {
-                  _isSpeaking = false;
-                });
-
-                _showCustomSnackbar(
-                  message: '开始录音失败: $e',
-                  icon: Icons.error,
-                  iconColor: Colors.redAccent,
-                );
-              }
-            });
-      } catch (e) {
-        print('开始录音失败: $e');
-        // 如果失败，恢复状态
-        setState(() {
-          _isSpeaking = false;
-        });
-
-        if (mounted) {
-          _showCustomSnackbar(
-            message: '开始录音失败: $e',
-            icon: Icons.error,
-            iconColor: Colors.redAccent,
-          );
-        }
-      }
+      _xiaozhiService
+          .startListeningCall()
+          .then((_) {
+            if (mounted) {
+              print('VoiceCall: Đã bắt đầu thu âm');
+            }
+          })
+          .catchError((e) {
+            print('VoiceCall: Bắt đầu thu âm thất bại: $e');
+            if (mounted) {
+              setState(() {
+                _isSpeaking = false;
+              });
+            }
+          });
     }
   }
 
-  // 发送打断消息
   void _sendAbortMessage() {
-    // 发送打断消息
     _xiaozhiService.sendAbortMessage();
+    setState(() {
+      _isAiSpeaking = false;
+      _statusText = 'Đã ngắt lời';
+    });
 
     if (mounted) {
       _showCustomSnackbar(
-        message: '已发送打断信号',
+        message: 'Đã ngắt lời Mina AI',
         icon: Icons.pan_tool,
         iconColor: Colors.orangeAccent,
       );
     }
+
+    Future.delayed(const Duration(milliseconds: 300), () {
+      if (mounted) {
+        _startSpeaking();
+      }
+    });
   }
 
   String _formatDuration(Duration duration) {
@@ -282,206 +271,97 @@ class _VoiceCallScreenState extends State<VoiceCallScreen>
 
   @override
   Widget build(BuildContext context) {
-    // 确保状态栏设置正确
-    SystemChrome.setSystemUIOverlayStyle(
-      const SystemUiOverlayStyle(
-        statusBarColor: Colors.transparent,
-        statusBarIconBrightness: Brightness.light,
-        statusBarBrightness: Brightness.dark,
-        systemNavigationBarColor: Colors.transparent,
-        systemNavigationBarIconBrightness: Brightness.light,
-        systemNavigationBarDividerColor: Colors.transparent,
-      ),
-    );
+    final size = MediaQuery.of(context).size;
+    final isLandscape = size.width > size.height;
 
     return Scaffold(
-      backgroundColor: Theme.of(context).colorScheme.primary,
+      backgroundColor: const Color(0xFF0F172A),
       extendBody: true,
       extendBodyBehindAppBar: true,
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
-        systemOverlayStyle: const SystemUiOverlayStyle(
-          statusBarColor: Colors.transparent,
-          statusBarIconBrightness: Brightness.light,
-          statusBarBrightness: Brightness.dark,
-        ),
         leading: Container(
-          margin: const EdgeInsets.only(left: 8, top: 8),
+          margin: const EdgeInsets.only(left: 12, top: 8),
           decoration: BoxDecoration(
-            color: Colors.black.withOpacity(0.2),
+            color: Colors.white.withOpacity(0.15),
             shape: BoxShape.circle,
           ),
           child: IconButton(
             icon: const Icon(Icons.arrow_back, color: Colors.white, size: 24),
             onPressed: () {
-              // 返回前停止播放
               _xiaozhiService.stopPlayback();
               Navigator.pop(context);
             },
           ),
         ),
       ),
-      body: Stack(
-        fit: StackFit.expand,
+      body: Container(
+        width: double.infinity,
+        height: double.infinity,
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              Color(0xFF0F172A),
+              Color(0xFF1E293B),
+              Color(0xFF0A192F),
+            ],
+          ),
+        ),
+        child: SafeArea(
+          child: isLandscape ? _buildLandscapeLayout() : _buildPortraitLayout(),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildLandscapeLayout() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+      child: Row(
         children: [
-          // 渐变背景
-          Container(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [
-                  Theme.of(context).colorScheme.primary,
-                  Theme.of(context).colorScheme.primary.withOpacity(0.8),
-                  Theme.of(context).colorScheme.primary.withOpacity(0.6),
-                ],
-              ),
-            ),
-          ),
-
-          // 水波纹背景
-          Positioned.fill(
-            child: Opacity(
-              opacity: 0.1,
-              child: Image.asset(
-                'assets/images/wave_pattern.png',
-                fit: BoxFit.cover,
-              ),
-            ),
-          ),
-
-          // 主要内容
-          Center(
+          Expanded(
+            flex: 4,
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                // 圆形头像
-                Hero(
-                  tag: 'avatar_${widget.conversation.id}',
-                  child: Container(
-                    width: 120,
-                    height: 120,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.3),
-                          blurRadius: 15,
-                          spreadRadius: 2,
-                        ),
-                      ],
-                      gradient: LinearGradient(
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                        colors: [
-                          Theme.of(
-                            context,
-                          ).colorScheme.primary.withOpacity(0.9),
-                          Theme.of(context).colorScheme.primaryContainer,
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 24),
-
-                // 名称显示
+                _buildAvatar(size: 90),
+                const SizedBox(height: 8),
                 Text(
-                  widget.conversation.title,
+                  widget.conversation.title.isEmpty ? 'Mina AI' : widget.conversation.title,
                   style: const TextStyle(
                     color: Colors.white,
-                    fontSize: 28,
+                    fontSize: 22,
                     fontWeight: FontWeight.bold,
+                    letterSpacing: 0.5,
                   ),
                 ),
-                const SizedBox(height: 8),
-
-                // 状态显示 - 使用拟物化样式
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 8,
-                  ),
-                  decoration: BoxDecoration(
-                    color:
-                        _isConnected
-                            ? Colors.green.withOpacity(0.2)
-                            : Colors.red.withOpacity(0.2),
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(
-                      color:
-                          _isConnected
-                              ? Colors.green.withOpacity(0.6)
-                              : Colors.red.withOpacity(0.6),
-                      width: 1,
-                    ),
-                    boxShadow: [
-                      BoxShadow(
-                        color:
-                            _isConnected
-                                ? Colors.green.withOpacity(0.2)
-                                : Colors.red.withOpacity(0.2),
-                        blurRadius: 8,
-                        spreadRadius: 0,
-                      ),
-                    ],
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        _isConnected ? Icons.check_circle : Icons.error_outline,
-                        color: _isConnected ? Colors.green : Colors.red,
-                        size: 16,
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        _isSpeaking ? '$_statusText (正在录音)' : _statusText,
-                        style: TextStyle(
-                          color: _isConnected ? Colors.green : Colors.red,
-                          fontSize: 16,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 12),
-
-                // 通话时长
+                const SizedBox(height: 6),
+                _buildStatusBadge(),
+                const SizedBox(height: 6),
                 Text(
-                  '通话时长: ${_formatDuration(_callDuration)}',
+                  'Thời gian: ${_formatDuration(_callDuration)}',
                   style: TextStyle(
-                    color: Colors.white.withOpacity(0.8),
-                    fontSize: 16,
+                    color: Colors.white.withOpacity(0.7),
+                    fontSize: 13,
                   ),
                 ),
-                const SizedBox(height: 40),
-
-                // 音频可视化
-                _buildAudioVisualizer(),
-                const SizedBox(height: 60),
-
-                // 通话控制按钮
-                Padding(
-                  padding: EdgeInsets.only(
-                    bottom: MediaQuery.of(context).padding.bottom + 20,
-                  ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      _buildEndCallButton(),
-                      const SizedBox(width: 40),
-                      _buildControlButton(
-                        icon: Icons.pan_tool, // 改为手掌图标表示打断
-                        color: Colors.white,
-                        backgroundColor: Colors.orange,
-                        onPressed: _sendAbortMessage,
-                      ),
-                    ],
-                  ),
-                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            flex: 6,
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                _buildSubtitleCard(),
+                const SizedBox(height: 10),
+                _buildAudioVisualizer(height: 56),
+                const SizedBox(height: 14),
+                _buildControlButtonsRow(),
               ],
             ),
           ),
@@ -490,36 +370,182 @@ class _VoiceCallScreenState extends State<VoiceCallScreen>
     );
   }
 
-  Widget _buildAudioVisualizer() {
+  Widget _buildPortraitLayout() {
+    return SingleChildScrollView(
+      physics: const BouncingScrollPhysics(),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const SizedBox(height: 20),
+            _buildAvatar(size: 120),
+            const SizedBox(height: 16),
+            Text(
+              widget.conversation.title.isEmpty ? 'Mina AI' : widget.conversation.title,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 28,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 10),
+            _buildStatusBadge(),
+            const SizedBox(height: 8),
+            Text(
+              'Thời gian: ${_formatDuration(_callDuration)}',
+              style: TextStyle(
+                color: Colors.white.withOpacity(0.7),
+                fontSize: 15,
+              ),
+            ),
+            const SizedBox(height: 24),
+            _buildSubtitleCard(),
+            const SizedBox(height: 20),
+            _buildAudioVisualizer(height: 80),
+            const SizedBox(height: 32),
+            _buildControlButtonsRow(),
+            const SizedBox(height: 20),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAvatar({required double size}) {
     return Container(
-      width: 240,
-      height: 100,
+      width: size,
+      height: size,
       decoration: BoxDecoration(
-        color: Colors.black.withOpacity(0.2),
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: Colors.white.withOpacity(0.2), width: 1),
+        shape: BoxShape.circle,
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Color(0xFF38BDF8), Color(0xFF6366F1), Color(0xFFEC4899)],
+        ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.1),
-            blurRadius: 10,
-            spreadRadius: 0,
+            color: (_isAiSpeaking ? const Color(0xFF38BDF8) : Colors.black).withOpacity(0.4),
+            blurRadius: _isAiSpeaking ? 25 : 12,
+            spreadRadius: _isAiSpeaking ? 4 : 1,
           ),
         ],
       ),
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
+      child: Padding(
+        padding: const EdgeInsets.all(4),
+        child: CircleAvatar(
+          backgroundColor: const Color(0xFF1E293B),
+          child: Icon(
+            Icons.smart_toy_rounded,
+            color: const Color(0xFF38BDF8),
+            size: size * 0.5,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStatusBadge() {
+    final isWorking = _isConnected;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+      decoration: BoxDecoration(
+        color: isWorking ? const Color(0xFF10B981).withOpacity(0.2) : Colors.red.withOpacity(0.2),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: isWorking ? Colors.greenAccent.withOpacity(0.5) : Colors.redAccent.withOpacity(0.5),
+          width: 1,
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 8,
+            height: 8,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: isWorking ? Colors.greenAccent : Colors.redAccent,
+              boxShadow: [
+                BoxShadow(
+                  color: (isWorking ? Colors.greenAccent : Colors.redAccent).withOpacity(0.6),
+                  blurRadius: 6,
+                  spreadRadius: 2,
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          Text(
+            _isAiSpeaking
+                ? 'Mina AI đang nói...'
+                : (_isSpeaking ? 'Đang nghe bạn...' : _statusText),
+            style: TextStyle(
+              color: isWorking ? Colors.greenAccent : Colors.redAccent,
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSubtitleCard() {
+    return Container(
+      width: double.infinity,
+      constraints: const BoxConstraints(minHeight: 52, maxHeight: 85),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.white.withOpacity(0.12)),
+      ),
+      child: Center(
+        child: SingleChildScrollView(
+          child: Text(
+            _currentSubtitle,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 14,
+              fontWeight: FontWeight.w500,
+              height: 1.35,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAudioVisualizer({required double height}) {
+    return Container(
+      height: height,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+      decoration: BoxDecoration(
+        color: Colors.black.withOpacity(0.25),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: Colors.white.withOpacity(0.08)),
+      ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceEvenly,
         crossAxisAlignment: CrossAxisAlignment.end,
         children: List.generate(
           _audioLevels.length,
           (index) => AnimatedContainer(
-            duration: const Duration(milliseconds: 50),
-            curve: Curves.easeInOut,
+            duration: const Duration(milliseconds: 70),
+            curve: Curves.easeOut,
             width: 4,
-            height: 80 * _audioLevels[index],
+            height: (height - 12) * _audioLevels[index],
             decoration: BoxDecoration(
-              color: _getBarColor(index, _audioLevels[index]),
-              borderRadius: BorderRadius.circular(2),
+              gradient: LinearGradient(
+                begin: Alignment.bottomCenter,
+                end: Alignment.topCenter,
+                colors: _isAiSpeaking
+                    ? [const Color(0xFF06B6D4), const Color(0xFF3B82F6)]
+                    : [const Color(0xFF10B981), const Color(0xFF34D399)],
+              ),
+              borderRadius: BorderRadius.circular(3),
             ),
           ),
         ),
@@ -527,97 +553,87 @@ class _VoiceCallScreenState extends State<VoiceCallScreen>
     );
   }
 
-  Color _getBarColor(int index, double level) {
-    if (_isSpeaking) {
-      // 渐变从蓝色到绿色
-      double position = index / _audioLevels.length;
-      return Color.lerp(
-        Colors.blue.shade400,
-        Colors.green.shade400,
-        position,
-      )!.withOpacity(0.7 + 0.3 * level);
-    } else {
-      // 非说话状态时使用柔和的蓝色
-      return Colors.blue.shade200.withOpacity(0.3 + 0.4 * level);
-    }
+  Widget _buildControlButtonsRow() {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        _buildActionButton(
+          icon: Icons.call_end_rounded,
+          color: Colors.white,
+          backgroundColor: const Color(0xFFEF4444),
+          label: 'Kết thúc',
+          size: 54,
+          onPressed: () async {
+            await _xiaozhiService.sendAbortMessage();
+            if (mounted) Navigator.pop(context);
+          },
+        ),
+        const SizedBox(width: 32),
+        _buildActionButton(
+          icon: Icons.pan_tool_rounded,
+          color: Colors.white,
+          backgroundColor: const Color(0xFFF59E0B),
+          label: 'Ngắt lời',
+          size: 54,
+          onPressed: _sendAbortMessage,
+        ),
+      ],
+    );
   }
 
-  Widget _buildControlButton({
+  Widget _buildActionButton({
     required IconData icon,
     required Color color,
     required Color backgroundColor,
-    double size = 56,
+    required String label,
+    required double size,
     required VoidCallback onPressed,
   }) {
-    return Container(
-      width: size,
-      height: size,
-      decoration: BoxDecoration(
-        color: backgroundColor,
-        shape: BoxShape.circle,
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.3),
-            blurRadius: 10,
-            spreadRadius: 0,
-            offset: const Offset(0, 4),
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: size,
+          height: size,
+          decoration: BoxDecoration(
+            color: backgroundColor,
+            shape: BoxShape.circle,
+            boxShadow: [
+              BoxShadow(
+                color: backgroundColor.withOpacity(0.4),
+                blurRadius: 10,
+                offset: const Offset(0, 3),
+              ),
+            ],
           ),
-          BoxShadow(
-            color: backgroundColor.withOpacity(0.4),
-            blurRadius: 12,
-            spreadRadius: 0,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          customBorder: const CircleBorder(),
-          onTap: onPressed,
-          child: Center(child: Icon(icon, color: color, size: size * 0.45)),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildEndCallButton() {
-    return GestureDetector(
-      onTap: () async {
-        // 先发送打断消息
-        await _xiaozhiService.sendAbortMessage();
-        // 然后返回上一级页面
-        Navigator.pop(context);
-      },
-      child: Container(
-        width: 64,
-        height: 64,
-        decoration: BoxDecoration(
-          color: Colors.red.shade400,
-          shape: BoxShape.circle,
-          boxShadow: [
-            BoxShadow(
-              color: Colors.red.shade400.withOpacity(0.3),
-              blurRadius: 12,
-              spreadRadius: 2,
+          child: Material(
+            color: Colors.transparent,
+            child: InkWell(
+              customBorder: const CircleBorder(),
+              onTap: onPressed,
+              child: Center(child: Icon(icon, color: color, size: size * 0.45)),
             ),
-          ],
+          ),
         ),
-        child: const Icon(
-          Icons.call_end_rounded,
-          color: Colors.white,
-          size: 32,
+        const SizedBox(height: 4),
+        Text(
+          label,
+          style: TextStyle(
+            color: Colors.white.withOpacity(0.85),
+            fontSize: 12,
+            fontWeight: FontWeight.w500,
+          ),
         ),
-      ),
+      ],
     );
   }
 
-  // 显示自定义Snackbar
   void _showCustomSnackbar({
     required String message,
     required IconData icon,
     required Color iconColor,
   }) {
+    if (!mounted) return;
     ScaffoldMessenger.of(context).hideCurrentSnackBar();
 
     final snackBar = SnackBar(
@@ -628,10 +644,7 @@ class _VoiceCallScreenState extends State<VoiceCallScreen>
           Expanded(
             child: Text(
               message,
-              style: const TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.w500,
-              ),
+              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w500),
               overflow: TextOverflow.ellipsis,
               maxLines: 2,
             ),
@@ -639,15 +652,9 @@ class _VoiceCallScreenState extends State<VoiceCallScreen>
         ],
       ),
       behavior: SnackBarBehavior.floating,
-      backgroundColor: Colors.black87,
-      duration: const Duration(seconds: 3),
-      margin: EdgeInsets.only(
-        bottom: MediaQuery.of(context).size.height - 120,
-        left: 16,
-        right: 16,
-      ),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      elevation: 8,
+      backgroundColor: const Color(0xFF1E293B),
+      duration: const Duration(seconds: 2),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
     );
 
     ScaffoldMessenger.of(context).showSnackBar(snackBar);

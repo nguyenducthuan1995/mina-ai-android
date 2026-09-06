@@ -72,6 +72,28 @@ class ConversationProvider extends ChangeNotifier {
         // 如果某个会话的消息加载失败，继续加载其他会话
         _messages[conversation.id] = [];
       }
+    if (_conversations.isEmpty) {
+      final defaultConv = Conversation(
+        id: const Uuid().v4(),
+        title: 'Trợ lý Mina AI',
+        type: ConversationType.xiaozhi,
+        configId: 'default_mina_ai',
+        lastMessageTime: DateTime.now(),
+        lastMessage: 'Chào bạn! Tôi là Mina AI sẵn sàng hỗ trợ.',
+        unreadCount: 0,
+        isPinned: true,
+      );
+      _conversations.add(defaultConv);
+      _messages[defaultConv.id] = [
+        Message(
+          id: const Uuid().v4(),
+          conversationId: defaultConv.id,
+          role: MessageRole.assistant,
+          content: 'Chào bạn! Tôi là Mina AI, trợ lý ảo ô tô thông minh của bạn. Hãy chạm vào mic để trò chuyện cùng tôi nhé!',
+          timestamp: DateTime.now(),
+        ),
+      ];
+      await _saveConversations();
     }
 
     notifyListeners();

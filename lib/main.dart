@@ -53,9 +53,9 @@ void main() async {
     if (Platform.isAndroid) Permission.bluetoothConnect,
   ].request();
 
-  // 添加中文本地化支持
-  timeago.setLocaleMessages('zh', timeago.ZhMessages());
-  timeago.setDefaultLocale('zh');
+  // Thêm hỗ trợ ngôn ngữ tiếng Việt
+  timeago.setLocaleMessages('vi', timeago.ViMessages());
+  timeago.setDefaultLocale('vi');
 
   // 在Android上设置高刷新率
   if (Platform.isAndroid) {

@@ -36,6 +36,34 @@ class ConfigProvider extends ChangeNotifier {
             .map((json) => XiaozhiConfig.fromJson(jsonDecode(json)))
             .toList();
 
+    // Tự động khởi tạo hoặc cập nhật cấu hình Mina AI chuẩn
+    if (_xiaozhiConfigs.isEmpty) {
+      final defaultMac = await _getDeviceMacAddress();
+      _xiaozhiConfigs.add(XiaozhiConfig(
+        id: 'default_mina_ai',
+        name: 'Mina AI',
+        websocketUrl: 'wss://api.tenclass.net/xiaozhi/v1/',
+        macAddress: defaultMac,
+        token: 'test-token',
+      ));
+      await _saveConfigs();
+    } else {
+      bool updated = false;
+      for (int i = 0; i < _xiaozhiConfigs.length; i++) {
+        if (_xiaozhiConfigs[i].websocketUrl.contains('api.xiaozhi.me') ||
+            _xiaozhiConfigs[i].websocketUrl == 'wss://ws.xiaozhi.ai') {
+          _xiaozhiConfigs[i] = _xiaozhiConfigs[i].copyWith(
+            name: _xiaozhiConfigs[i].name.contains('小智') ? 'Mina AI' : _xiaozhiConfigs[i].name,
+            websocketUrl: 'wss://api.tenclass.net/xiaozhi/v1/',
+          );
+          updated = true;
+        }
+      }
+      if (updated) {
+        await _saveConfigs();
+      }
+    }
+
     // 加载多个Dify配置
     final difyConfigsJson = prefs.getStringList('difyConfigs') ?? [];
     _difyConfigs =
