@@ -33,6 +33,7 @@ class XiaozhiWebSocketManager {
 
   final List<XiaozhiWebSocketListener> _listeners = [];
   bool _isReconnecting = false;
+  bool _isManuallyClosed = false;
   Timer? _reconnectTimer;
   StreamSubscription? _streamSubscription;
 
@@ -72,10 +73,15 @@ class XiaozhiWebSocketManager {
     // 保存连接参数
     _serverUrl = url;
     _token = token;
+    _isManuallyClosed = false;
+    _reconnectTimer?.cancel();
+    _reconnectTimer = null;
+    _isReconnecting = false;
 
     // 如果已连接，先断开
     if (_channel != null) {
       await disconnect();
+      _isManuallyClosed = false;
     }
 
     try {
@@ -165,19 +171,27 @@ class XiaozhiWebSocketManager {
 
   /// 断开WebSocket连接
   Future<void> disconnect() async {
+    _isManuallyClosed = true;
     // 取消重连
     _reconnectTimer?.cancel();
+    _reconnectTimer = null;
     _isReconnecting = false;
 
-    // 取消订阅
-    await _streamSubscription?.cancel();
-    _streamSubscription = null;
+    // 取消订阅 (在关闭channel前取消，避免onDone触发二次重连)
+    if (_streamSubscription != null) {
+      await _streamSubscription?.cancel();
+      _streamSubscription = null;
+    }
 
     // 关闭连接
     if (_channel != null) {
-      await _channel!.sink.close(status.normalClosure);
+      try {
+        await _channel!.sink.close(status.normalClosure);
+      } catch (e) {
+        print('$TAG: 关闭连接出错: $e');
+      }
       _channel = null;
-      print('$TAG: 连接已断开');
+      print('$TAG: 连接已断开 (主动断开)');
     }
   }
 
@@ -274,14 +288,21 @@ class XiaozhiWebSocketManager {
       XiaozhiEvent(type: XiaozhiEventType.disconnected, data: null),
     );
 
+    // 如果是主动关闭，或者已在重连中，不再重连
+    if (_isManuallyClosed) {
+      print('$TAG: 主动断开，不执行自动重连');
+      return;
+    }
+
     // 尝试自动重连
     if (!_isReconnecting && _serverUrl != null && _token != null) {
       _isReconnecting = true;
+      _reconnectTimer?.cancel();
       _reconnectTimer = Timer(
         const Duration(milliseconds: RECONNECT_DELAY),
         () {
           _isReconnecting = false;
-          if (_serverUrl != null && _token != null) {
+          if (!_isManuallyClosed && _serverUrl != null && _token != null) {
             connect(_serverUrl!, _token!);
           }
         },

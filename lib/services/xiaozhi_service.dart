@@ -177,10 +177,16 @@ class XiaozhiService {
 
   /// 连接到小智服务
   Future<void> connect() async {
-    if (_isConnected) return;
+    if (_isConnected && _webSocketManager != null && _webSocketManager!.isConnected) return;
 
     try {
       print('$TAG: 开始连接服务器...');
+
+      // 如果已有旧的WebSocket管理器，先确保断开并清理
+      if (_webSocketManager != null) {
+        await _webSocketManager!.disconnect();
+        _webSocketManager = null;
+      }
 
       // 创建WebSocket管理器
       _webSocketManager = XiaozhiWebSocketManager(
@@ -203,8 +209,6 @@ class XiaozhiService {
 
   /// 断开小智服务连接
   Future<void> disconnect() async {
-    if (!_isConnected || _webSocketManager == null) return;
-
     try {
       // 取消音频流订阅
       await _audioStreamSubscription?.cancel();
@@ -216,9 +220,13 @@ class XiaozhiService {
       }
 
       // 断开WebSocket连接
-      await _webSocketManager!.disconnect();
-      _webSocketManager = null;
+      if (_webSocketManager != null) {
+        await _webSocketManager!.disconnect();
+        _webSocketManager = null;
+      }
       _isConnected = false;
+      _sessionId = null;
+      print('$TAG: Đã ngắt kết nối hoàn toàn');
     } catch (e) {
       print('$TAG: 断开连接失败: $e');
     }
@@ -317,6 +325,12 @@ class XiaozhiService {
       print('$TAG: 设备ID: $macAddress');
       print('$TAG: Token启用: true');
       print('$TAG: 使用Token: $token');
+
+      // 如果已有旧的WebSocket管理器，先确保断开并清理
+      if (_webSocketManager != null) {
+        await _webSocketManager!.disconnect();
+        _webSocketManager = null;
+      }
 
       // 使用 WebSocketManager 连接
       _webSocketManager = XiaozhiWebSocketManager(
@@ -720,16 +734,27 @@ class XiaozhiService {
 
   /// 开始监听（按住说话模式）
   Future<void> startListening({String mode = 'manual'}) async {
-    if (!_isConnected || _webSocketManager == null) {
+    if (!_isConnected || _webSocketManager == null || !_webSocketManager!.isConnected) {
+      print('$TAG: Đang kết nối trước khi bắt đầu thu âm...');
       await connect();
     }
 
     try {
-      // 确保已经有会话ID
+      // 等待会话ID (tối đa 2.5 giây)
       if (_sessionId == null) {
-        print('$TAG: 没有会话ID，无法开始监听');
-        return;
+        print('$TAG: Đang chờ session_id từ máy chủ...');
+        int waitCount = 0;
+        while ((_sessionId == null || !_isConnected) && waitCount < 25) {
+          await Future.delayed(const Duration(milliseconds: 100));
+          waitCount++;
+        }
+        if (_sessionId == null) {
+          print('$TAG: Hết thời gian chờ session_id');
+          throw Exception('Máy chủ chưa sẵn sàng, vui lòng nhấn giữ nói lại');
+        }
       }
+
+      print('$TAG: Bắt đầu thu âm với session ID: $_sessionId');
 
       // 开始录音
       await AudioUtil.startRecording();
@@ -745,13 +770,14 @@ class XiaozhiService {
       print('$TAG: 已发送开始监听消息 (按住说话)');
 
       // 设置音频流订阅
+      await _audioStreamSubscription?.cancel();
       _audioStreamSubscription = AudioUtil.audioStream.listen((opusData) {
         // 发送音频数据
         _webSocketManager?.sendBinaryMessage(opusData);
       });
     } catch (e) {
       print('$TAG: 开始监听失败: $e');
-      throw Exception('开始语音输入失败: $e');
+      throw Exception('Bắt đầu thu âm thất bại: $e');
     }
   }
 

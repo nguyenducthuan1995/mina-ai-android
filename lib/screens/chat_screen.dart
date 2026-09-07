@@ -90,25 +90,8 @@ class _ChatScreenState extends State<ChatScreen> {
       // 如果是小智对话，初始化服务
       if (widget.conversation.type == ConversationType.xiaozhi) {
         _initXiaozhiService();
-        // 添加定时器定期检查连接状态
-        _connectionCheckTimer = Timer.periodic(const Duration(seconds: 2), (
-          timer,
-        ) {
-          if (mounted && _xiaozhiService != null) {
-            final wasConnected = _xiaozhiService!.isConnected;
-
-            // 刷新UI
-            setState(() {});
-
-            // 如果状态从连接变为断开，尝试自动重连
-            if (wasConnected &&
-                !_xiaozhiService!.isConnected &&
-                _autoReconnectTimer == null) {
-              print('检测到连接断开，准备自动重连');
-              _scheduleReconnect();
-            }
-          }
-        });
+        // 添加定时器定期检查连接状态并刷新UI
+        _startConnectionTimer();
 
         // 默认启用语音输入模式 (针对小智对话)
         setState(() {
@@ -124,34 +107,12 @@ class _ChatScreenState extends State<ChatScreen> {
     });
   }
 
-  // 安排自动重连
-  void _scheduleReconnect() {
-    // 取消现有重连定时器
-    _autoReconnectTimer?.cancel();
-
-    // 创建新的重连定时器，5秒后尝试重连
-    _autoReconnectTimer = Timer(const Duration(seconds: 5), () async {
-      print('正在尝试自动重连...');
-      if (_xiaozhiService != null && !_xiaozhiService!.isConnected && mounted) {
-        try {
-          await _xiaozhiService!.disconnect();
-          await _xiaozhiService!.connect();
-
-          setState(() {});
-          print('自动重连 ${_xiaozhiService!.isConnected ? "成功" : "失败"}');
-
-          // 如果重连失败，则继续尝试重连
-          if (!_xiaozhiService!.isConnected) {
-            _scheduleReconnect();
-          } else {
-            _autoReconnectTimer = null;
-          }
-        } catch (e) {
-          print('自动重连出错: $e');
-          _scheduleReconnect(); // 出错后继续尝试
-        }
-      } else {
-        _autoReconnectTimer = null;
+  // 定期刷新连接状态
+  void _startConnectionTimer() {
+    _connectionCheckTimer?.cancel();
+    _connectionCheckTimer = Timer.periodic(const Duration(seconds: 3), (timer) {
+      if (mounted) {
+        setState(() {});
       }
     });
   }
@@ -595,10 +556,10 @@ class _ChatScreenState extends State<ChatScreen> {
             height: 10,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: isConnected ? Colors.green : Colors.red,
+              color: isConnected ? Colors.green : const Color(0xFFE5A000),
               boxShadow: [
                 BoxShadow(
-                  color: (isConnected ? Colors.green : Colors.red).withOpacity(
+                  color: (isConnected ? Colors.green : const Color(0xFFE5A000)).withOpacity(
                     0.4,
                   ),
                   blurRadius: 4,
@@ -609,10 +570,10 @@ class _ChatScreenState extends State<ChatScreen> {
           ),
           const SizedBox(width: 8),
           Text(
-            isConnected ? 'Đã kết nối' : 'Chưa kết nối',
+            isConnected ? 'Đang kết nối' : 'Sẵn sàng',
             style: TextStyle(
               fontSize: 13,
-              color: isConnected ? Colors.green : Colors.red,
+              color: isConnected ? Colors.green : const Color(0xFFD97706),
               fontWeight: FontWeight.w500,
             ),
           ),
@@ -1358,9 +1319,14 @@ class _ChatScreenState extends State<ChatScreen> {
       (config) => config.id == widget.conversation.configId,
     );
 
-    // 导航前停止当前音频播放
+    // Tạm dừng timer check của ChatScreen
+    _connectionCheckTimer?.cancel();
+    _connectionCheckTimer = null;
+
+    // 导航前停止当前音频播放并断开连接，避免与VoiceCallScreen tranh chấp
     if (_xiaozhiService != null) {
       _xiaozhiService!.stopPlayback();
+      _xiaozhiService!.disconnect();
     }
 
     Navigator.push(
@@ -1374,10 +1340,9 @@ class _ChatScreenState extends State<ChatScreen> {
       ),
     ).then((_) {
       // 页面返回后，确保重新初始化服务以恢复正常对话功能
-      if (_xiaozhiService != null &&
-          widget.conversation.type == ConversationType.xiaozhi) {
-        // 重新连接服务
-        _xiaozhiService!.connect();
+      if (mounted && widget.conversation.type == ConversationType.xiaozhi) {
+        _initXiaozhiService();
+        _startConnectionTimer();
       }
     });
   }
