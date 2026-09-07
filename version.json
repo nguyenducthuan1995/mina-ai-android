@@ -1,8 +1,8 @@
 {
-  "version": "2.0.4",
-  "version_code": 6,
+  "version": "2.0.3",
+  "version_code": 5,
   "title": "Mina AI v2.0.4 — Bản đồ thực & GPS tốc độ thời gian thực",
   "changelog": "• Sửa lỗi bản đồ hiển thị 'API KEY REQUIRED' — thay bằng OpenStreetMap dark theme miễn phí, không cần API key\n• Hiển thị tốc độ thực từ GPS của xe (km/h) thay vì giá trị cứng 0 km/h\n• Bản đồ tự động theo dõi vị trí GPS, có thể kéo thủ công và nhấn nút định vị để quay về\n• Cảnh báo nếu GPS chưa được cấp quyền\n• Thêm quyền GPS (ACCESS_FINE_LOCATION) vào ứng dụng",
-  "apk_url": "https://github.com/nguyenducthuan1995/mina-ai-android/releases/download/latest/MinaAI-debug.apk",
+  "apk_url": "https://github.com/nguyenducthuan1995/mina-ai-android/releases/latest/download/MinaAI-debug.apk",
   "force_update": false
 }
