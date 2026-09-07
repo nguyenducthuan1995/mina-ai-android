@@ -53,6 +53,7 @@ class XiaozhiService {
   bool _isConnected = false;
   bool _isMuted = false;
   final List<XiaozhiServiceListener> _listeners = [];
+  StreamSubscription? _audioStreamSubscription;
   bool _isVoiceCallActive = false;
   bool _isAiSpeaking = false;
   WebSocketChannel? _ws;
@@ -153,7 +154,7 @@ class XiaozhiService {
   }
 
   /// 设置消息监听器
-  void setMessageListener(MessageListener listener) {
+  void setMessageListener(MessageListener? listener) {
     _messageListener = listener;
   }
 
