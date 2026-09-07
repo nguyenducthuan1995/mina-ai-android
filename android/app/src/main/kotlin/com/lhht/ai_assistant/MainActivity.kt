@@ -60,33 +60,43 @@ class MainActivity : FlutterActivity() {
     }
 
     private fun openNavigation(destination: String): Boolean {
-        // 1. Thử mở Google Maps app bằng google.navigation hoặc geo URI
+        // 1. Thử mở Google Maps app trực tiếp
         try {
-            val uriStr = if (destination.isNotBlank()) {
-                "google.navigation:q=" + Uri.encode(destination)
-            } else {
-                "geo:0,0?q=Kaufland"
-            }
-            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(uriStr)).apply {
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK
-                setPackage("com.google.android.apps.maps")
-            }
-            startActivity(intent)
-            return true
-        } catch (e: Exception) {
-            // 2. Thử mở bằng geo intent chung (hỗ trợ bất kỳ app bản đồ nào cài trên xe)
-            try {
-                val geoUriStr = if (destination.isNotBlank()) {
-                    "geo:0,0?q=" + Uri.encode(destination)
-                } else {
-                    "geo:0,0"
-                }
-                val geoIntent = Intent(Intent.ACTION_VIEW, Uri.parse(geoUriStr)).apply {
+            if (destination.isNotBlank()) {
+                val uriStr = "google.navigation:q=" + Uri.encode(destination)
+                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(uriStr)).apply {
                     flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                    setPackage("com.google.android.apps.maps")
                 }
-                startActivity(geoIntent)
+                startActivity(intent)
                 return true
-            } catch (e2: Exception) {
+            } else {
+                val launchIntent = packageManager.getLaunchIntentForPackage("com.google.android.apps.maps")
+                if (launchIntent != null) {
+                    launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    startActivity(launchIntent)
+                    return true
+                }
+            }
+        } catch (e: Exception) {
+            // tiếp tục fallback
+        }
+
+        // 2. Thử mở bằng geo intent chung (hỗ trợ bất kỳ app bản đồ nào cài trên xe)
+        try {
+            val geoUriStr = if (destination.isNotBlank()) {
+                "geo:0,0?q=" + Uri.encode(destination)
+            } else {
+                "geo:52.3759,9.7320?z=15"
+            }
+            val geoIntent = Intent(Intent.ACTION_VIEW, Uri.parse(geoUriStr)).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            startActivity(geoIntent)
+            return true
+        } catch (e2: Exception) {
+            // tiếp tục fallback
+        }
                 // 3. Fallback mở Google Maps trên trình duyệt web
                 try {
                     val fallbackUri = if (destination.isNotBlank()) {

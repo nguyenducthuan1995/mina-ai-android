@@ -8,6 +8,7 @@ import 'package:ai_assistant/providers/conversation_provider.dart';
 import 'package:ai_assistant/providers/config_provider.dart';
 import 'package:ai_assistant/screens/chat_screen.dart';
 import 'package:ai_assistant/screens/voice_call_screen.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:ai_assistant/services/ota_service.dart';
 import 'package:ai_assistant/services/xiaozhi_activation_service.dart';
 
@@ -23,16 +24,31 @@ class AssistantSelectionScreen extends StatefulWidget {
 
 class _AssistantSelectionScreenState extends State<AssistantSelectionScreen> {
   String _selectedCategory = 'Tất cả';
+  bool _isActivationDismissed = true; // Ẩn mặc định nếu đã kích hoạt
 
   @override
   void initState() {
     super.initState();
+    _loadActivationState();
     // Tự động kiểm tra bản cập nhật sau khi vào app 3 giây (chạy ngầm)
     Future.delayed(const Duration(seconds: 3), () {
       if (mounted) {
         OtaService.instance.checkForUpdate(context, manual: false);
       }
     });
+  }
+
+  Future<void> _loadActivationState() async {
+    final prefs = await SharedPreferences.getInstance();
+    final dismissed = prefs.getBool('activation_banner_dismissed') ?? false;
+    final configProvider = Provider.of<ConfigProvider>(context, listen: false);
+    final hasToken = configProvider.xiaozhiConfigs.isNotEmpty &&
+        configProvider.xiaozhiConfigs.first.token.isNotEmpty;
+    if (mounted) {
+      setState(() {
+        _isActivationDismissed = dismissed || hasToken;
+      });
+    }
   }
 
   static const List<String> _categories = [
@@ -82,17 +98,18 @@ class _AssistantSelectionScreenState extends State<AssistantSelectionScreen> {
           ),
         ),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.vpn_key_rounded, color: Color(0xFFD97706)),
-            tooltip: 'Kích hoạt Tiếng Việt (xiaozhi.me)',
-            onPressed: () {
-              final configProvider = Provider.of<ConfigProvider>(context, listen: false);
-              final mac = configProvider.xiaozhiConfigs.isNotEmpty
-                  ? configProvider.xiaozhiConfigs.first.macAddress
-                  : '';
-              XiaozhiActivationService.instance.showActivationDialog(context, mac);
-            },
-          ),
+          if (!_isActivationDismissed)
+            IconButton(
+              icon: const Icon(Icons.vpn_key_rounded, color: Color(0xFFD97706)),
+              tooltip: 'Kích hoạt Tiếng Việt (xiaozhi.me)',
+              onPressed: () {
+                final configProvider = Provider.of<ConfigProvider>(context, listen: false);
+                final mac = configProvider.xiaozhiConfigs.isNotEmpty
+                    ? configProvider.xiaozhiConfigs.first.macAddress
+                    : '';
+                XiaozhiActivationService.instance.showActivationDialog(context, mac);
+              },
+            ),
           IconButton(
             icon: const Icon(Icons.system_update_rounded, color: Color(0xFF2563EB)),
             tooltip: 'Cập nhật OTA',
@@ -311,6 +328,8 @@ class _AssistantSelectionScreenState extends State<AssistantSelectionScreen> {
   }
 
   Widget _buildActivationBanner(BuildContext context) {
+    if (_isActivationDismissed) return const SizedBox.shrink();
+
     final configProvider = Provider.of<ConfigProvider>(context);
     final mac =
         configProvider.xiaozhiConfigs.isNotEmpty
@@ -322,34 +341,33 @@ class _AssistantSelectionScreenState extends State<AssistantSelectionScreen> {
       child: Material(
         color: const Color(0xFFFFFBEB),
         borderRadius: BorderRadius.circular(12),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(12),
-          onTap: () {
-            XiaozhiActivationService.instance.showActivationDialog(context, mac);
-          },
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: const Color(0xFFFDE68A)),
-            ),
-            child: Row(
-              children: [
-                const Icon(Icons.vpn_key_rounded, color: Color(0xFFD97706), size: 18),
-                const SizedBox(width: 10),
-                const Expanded(
-                  child: Text(
-                    'Kích hoạt Tiếng Việt: Chạm để lấy Mã 6 số liên kết xiaozhi.me',
-                    style: TextStyle(
-                      color: Color(0xFF92400E),
-                      fontSize: 12.5,
-                      fontWeight: FontWeight.w600,
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: const Color(0xFFFDE68A)),
+          ),
+          child: Row(
+            children: [
+              const Icon(Icons.vpn_key_rounded, color: Color(0xFFD97706), size: 18),
+              const SizedBox(width: 10),
+              const Expanded(
+                child: Text(
+                  'Kích hoạt Tiếng Việt: Chạm để lấy Mã 6 số liên kết xiaozhi.me',
+                  style: TextStyle(
+                    color: Color(0xFF92400E),
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w600,
                   ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
-                Container(
+              ),
+              InkWell(
+                onTap: () {
+                  XiaozhiActivationService.instance.showActivationDialog(context, mac);
+                },
+                child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                   decoration: BoxDecoration(
                     color: const Color(0xFFD97706),
@@ -364,8 +382,25 @@ class _AssistantSelectionScreenState extends State<AssistantSelectionScreen> {
                     ),
                   ),
                 ),
-              ],
-            ),
+              ),
+              const SizedBox(width: 8),
+              InkWell(
+                onTap: () async {
+                  final prefs = await SharedPreferences.getInstance();
+                  await prefs.setBool('activation_banner_dismissed', true);
+                  if (mounted) {
+                    setState(() {
+                      _isActivationDismissed = true;
+                    });
+                  }
+                },
+                borderRadius: BorderRadius.circular(12),
+                child: const Padding(
+                  padding: EdgeInsets.all(4.0),
+                  child: Icon(Icons.close, color: Color(0xFF92400E), size: 18),
+                ),
+              ),
+            ],
           ),
         ),
       ),

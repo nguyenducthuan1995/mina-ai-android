@@ -8,6 +8,7 @@ import 'package:ai_assistant/models/assistant_persona.dart';
 import 'package:ai_assistant/providers/conversation_provider.dart';
 import 'package:ai_assistant/services/xiaozhi_service.dart';
 import 'package:ai_assistant/services/automotive_tool_service.dart';
+import '../widgets/automotive_map_view.dart';
 import 'dart:async';
 import 'dart:io';
 
@@ -395,7 +396,76 @@ class _VoiceCallScreenState extends State<VoiceCallScreen>
   );
 }
 
+  bool get isCarMode =>
+      widget.conversation.personaId == 'mina_car' ||
+      widget.conversation.title.toLowerCase().contains('lái xe') ||
+      widget.conversation.id.contains('car');
+
   Widget _buildLandscapeLayout() {
+    if (isCarMode) {
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+        child: Row(
+          children: [
+            // Cột bên trái (40%): Mina AI Lái Xe
+            Expanded(
+              flex: 4,
+              child: SingleChildScrollView(
+                physics: const BouncingScrollPhysics(),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    _buildAvatar(size: 72),
+                    const SizedBox(height: 6),
+                    Text(
+                      widget.conversation.title.isEmpty
+                          ? 'Mina Lái Xe'
+                          : widget.conversation.title,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 0.5,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    _buildStatusBadge(),
+                    const SizedBox(height: 6),
+                    _buildSubtitleCard(),
+                    const SizedBox(height: 6),
+                    _buildAudioVisualizer(height: 38),
+                    const SizedBox(height: 10),
+                    _buildControlButtonsRow(),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(width: 14),
+            // Cột bên phải (60%): Bản đồ dẫn đường ô tô trực tiếp
+            Expanded(
+              flex: 6,
+              child: AutomotiveMapView(
+                onOpenExternalMaps: () {
+                  _showCustomSnackbar(
+                    message: 'Đang mở Google Maps dẫn đường...',
+                    icon: Icons.navigation_rounded,
+                    iconColor: Colors.blueAccent,
+                  );
+                },
+                onSelectPoi: (dest) {
+                  _showCustomSnackbar(
+                    message: 'Đang dẫn đường tới $dest...',
+                    icon: Icons.navigation_rounded,
+                    iconColor: Colors.greenAccent,
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
       child: Row(
@@ -449,6 +519,54 @@ class _VoiceCallScreenState extends State<VoiceCallScreen>
   }
 
   Widget _buildPortraitLayout() {
+    if (isCarMode) {
+      return SingleChildScrollView(
+        physics: const BouncingScrollPhysics(),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: Column(
+            children: [
+              SizedBox(
+                height: 240,
+                width: double.infinity,
+                child: AutomotiveMapView(
+                  onOpenExternalMaps: () {
+                    _showCustomSnackbar(
+                      message: 'Đang mở Google Maps dẫn đường...',
+                      icon: Icons.navigation_rounded,
+                      iconColor: Colors.blueAccent,
+                    );
+                  },
+                ),
+              ),
+              const SizedBox(height: 12),
+              _buildAvatar(size: 70),
+              const SizedBox(height: 6),
+              Text(
+                widget.conversation.title.isEmpty
+                    ? 'Mina Lái Xe'
+                    : widget.conversation.title,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 4),
+              _buildStatusBadge(),
+              const SizedBox(height: 8),
+              _buildSubtitleCard(),
+              const SizedBox(height: 8),
+              _buildAudioVisualizer(height: 45),
+              const SizedBox(height: 16),
+              _buildControlButtonsRow(),
+              const SizedBox(height: 12),
+            ],
+          ),
+        ),
+      );
+    }
+
     return SingleChildScrollView(
       physics: const BouncingScrollPhysics(),
       child: Padding(

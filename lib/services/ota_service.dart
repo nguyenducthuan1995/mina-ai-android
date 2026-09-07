@@ -50,8 +50,8 @@ class OtaService {
   OtaService._();
   static final OtaService instance = OtaService._();
 
-  static const String currentVersion = '2.0.2';
-  static const int currentBuildNumber = 4;
+  static const String currentVersion = '2.0.3';
+  static const int currentBuildNumber = 5;
 
   static const MethodChannel _channel = MethodChannel('com.lhht.ai_assistant/ota');
 
