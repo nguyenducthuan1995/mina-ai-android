@@ -142,13 +142,8 @@ class _VoiceCallScreenState extends State<VoiceCallScreen>
         } else if (state == 'stop') {
           setState(() {
             _isAiSpeaking = false;
-            _statusText = 'Đang lắng nghe...';
-          });
-          // Tự động mở lại mic để nghe người dùng nói tiếp
-          Future.delayed(const Duration(milliseconds: 300), () {
-            if (mounted && _isConnected && !_isSpeaking && !_isAiSpeaking) {
-              _startSpeaking();
-            }
+            _isSpeaking = true;
+            _statusText = 'Đang lắng nghe liên tục...';
           });
         }
       } else if (type == 'stt') {
@@ -333,8 +328,15 @@ class _VoiceCallScreenState extends State<VoiceCallScreen>
     final size = MediaQuery.of(context).size;
     final isLandscape = size.width > size.height;
 
-    return Scaffold(
-      backgroundColor: const Color(0xFF0F172A),
+    return PopScope(
+      canPop: _isManualExit,
+      onPopInvokedWithResult: (didPop, result) {
+        if (!didPop && !_isManualExit) {
+          print('VoiceCall: Đã chặn cử chỉ back hoặc nút back ngoài ý muốn');
+        }
+      },
+      child: Scaffold(
+        backgroundColor: const Color(0xFF0F172A),
       extendBody: true,
       extendBodyBehindAppBar: true,
       appBar: AppBar(
@@ -375,8 +377,9 @@ class _VoiceCallScreenState extends State<VoiceCallScreen>
           child: isLandscape ? _buildLandscapeLayout() : _buildPortraitLayout(),
         ),
       ),
-    );
-  }
+    ),
+  );
+}
 
   Widget _buildLandscapeLayout() {
     return Padding(

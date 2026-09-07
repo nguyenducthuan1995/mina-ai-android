@@ -107,24 +107,40 @@ class AudioUtil {
     print('$TAG: 录音器初始化成功');
   }
 
+  static Completer<void>? _playerInitCompleter;
+
   /// 初始化音频播放器
   static Future<void> initPlayer() async {
-    // 确保任何旧播放器被释放
-    await stopPlaying();
+    if (_isPlayerInitialized && _pcmPlayer != null) {
+      return;
+    }
+    if (_playerInitCompleter != null) {
+      return _playerInitCompleter!.future;
+    }
 
+    _playerInitCompleter = Completer<void>();
     try {
-      print('$TAG: 使用简单方式初始化PCM播放器');
-
-      // 创建新的播放器实例 - 完全按照官方示例的简单方式
+      print('$TAG: Khởi tạo FlutterPcmPlayer...');
+      if (_pcmPlayer != null) {
+        try {
+          await _pcmPlayer!.stop();
+        } catch (_) {}
+      }
       _pcmPlayer = FlutterPcmPlayer();
       await _pcmPlayer!.initialize();
       await _pcmPlayer!.play();
 
       _isPlayerInitialized = true;
       print('$TAG: PCM播放器初始化成功');
+      _playerInitCompleter!.complete();
     } catch (e) {
       print('$TAG: PCM播放器初始化失败: $e');
       _isPlayerInitialized = false;
+      if (!_playerInitCompleter!.isCompleted) {
+        _playerInitCompleter!.completeError(e);
+      }
+    } finally {
+      _playerInitCompleter = null;
     }
   }
 
@@ -149,15 +165,12 @@ class AudioUtil {
       }
 
       // 直接发送到播放器
-      if (_pcmPlayer != null) {
+      if (_pcmPlayer != null && _isPlayerInitialized) {
         await _pcmPlayer!.feed(pcmBytes);
       }
     } catch (e) {
-      print('$TAG: 播放失败: $e');
-
-      // 简单重置并重新初始化
-      await stopPlaying();
-      await initPlayer();
+      // Bỏ qua lỗi đơn lẻ của 1 frame, không reset toàn bộ player khi đang stream
+      print('$TAG: Bỏ qua lỗi khung âm thanh Opus/PCM: $e');
     }
   }
 
