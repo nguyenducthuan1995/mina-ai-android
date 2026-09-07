@@ -50,6 +50,20 @@ class ConfigProvider extends ChangeNotifier {
     } else {
       bool updated = false;
       for (int i = 0; i < _xiaozhiConfigs.length; i++) {
+        final currentMac = _xiaozhiConfigs[i].macAddress;
+        // Kiểm tra tiền tố Espressif hợp lệ (24:dc:c3, 30:ae:a4, cc:50:e3, 08:d1:f9)
+        final isValidEspressif = currentMac.startsWith('24:dc:c3') ||
+            currentMac.startsWith('30:ae:a4') ||
+            currentMac.startsWith('cc:50:e3') ||
+            currentMac.startsWith('08:d1:f9');
+        if (!isValidEspressif) {
+          final newMac = await _getDeviceMacAddress();
+          _xiaozhiConfigs[i] = _xiaozhiConfigs[i].copyWith(
+            macAddress: newMac,
+          );
+          updated = true;
+        }
+
         if (_xiaozhiConfigs[i].websocketUrl.contains('api.xiaozhi.me') ||
             _xiaozhiConfigs[i].websocketUrl == 'wss://ws.xiaozhi.ai') {
           _xiaozhiConfigs[i] = _xiaozhiConfigs[i].copyWith(
@@ -277,9 +291,9 @@ class ConfigProvider extends ChangeNotifier {
     final digest = md5.convert(bytes);
     final hash = digest.toString();
 
-    // Format as MAC address (XX:XX:XX:XX:XX:XX)
-    final List<String> macParts = [];
-    for (int i = 0; i < 6; i++) {
+    // Dùng Espressif OUI chuẩn (24:dc:c3) để máy chủ XiaoZhi nhận diện là thiết bị hợp lệ
+    final List<String> macParts = ['24', 'dc', 'c3'];
+    for (int i = 0; i < 3; i++) {
       macParts.add(hash.substring(i * 2, i * 2 + 2));
     }
 
@@ -290,12 +304,16 @@ class ConfigProvider extends ChangeNotifier {
   Future<String> _getDeviceMacAddress() async {
     final deviceId = await _getSimpleDeviceId();
 
-    // 如果设备ID本身就是MAC地址格式，直接使用
-    if (_isMacAddress(deviceId)) {
+    // Nếu thiết bị đã có MAC thật và bắt đầu bằng OUI Espressif, dùng luôn
+    if (_isMacAddress(deviceId) &&
+        (deviceId.startsWith('24:dc:c3') ||
+            deviceId.startsWith('30:ae:a4') ||
+            deviceId.startsWith('cc:50:e3') ||
+            deviceId.startsWith('08:d1:f9'))) {
       return deviceId;
     }
 
-    // 否则生成一个MAC地址
+    // Luôn sinh MAC chuẩn Espressif OUI (24:dc:c3:xx:xx:xx) từ ID thiết bị
     return _generateMacFromDeviceId(deviceId);
   }
 

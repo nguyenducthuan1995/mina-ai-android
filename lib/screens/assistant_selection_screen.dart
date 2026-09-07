@@ -9,6 +9,7 @@ import 'package:ai_assistant/providers/config_provider.dart';
 import 'package:ai_assistant/screens/chat_screen.dart';
 import 'package:ai_assistant/screens/voice_call_screen.dart';
 import 'package:ai_assistant/services/ota_service.dart';
+import 'package:ai_assistant/services/xiaozhi_activation_service.dart';
 
 class AssistantSelectionScreen extends StatefulWidget {
   final bool isModal;
@@ -34,9 +35,10 @@ class _AssistantSelectionScreenState extends State<AssistantSelectionScreen> {
     });
   }
 
-  final List<String> _categories = [
+  static const List<String> _categories = [
     'Tất cả',
-    'Lái xe',
+    'Lái xe & GPS',
+    'Công việc',
     'Học tập',
     'Mua sắm',
     'Đời sống',
@@ -81,6 +83,17 @@ class _AssistantSelectionScreenState extends State<AssistantSelectionScreen> {
         ),
         actions: [
           IconButton(
+            icon: const Icon(Icons.vpn_key_rounded, color: Color(0xFFD97706)),
+            tooltip: 'Kích hoạt Tiếng Việt (xiaozhi.me)',
+            onPressed: () {
+              final configProvider = Provider.of<ConfigProvider>(context, listen: false);
+              final mac = configProvider.xiaozhiConfigs.isNotEmpty
+                  ? configProvider.xiaozhiConfigs.first.macAddress
+                  : '';
+              XiaozhiActivationService.instance.showActivationDialog(context, mac);
+            },
+          ),
+          IconButton(
             icon: const Icon(Icons.system_update_rounded, color: Color(0xFF2563EB)),
             tooltip: 'Cập nhật OTA',
             onPressed: () {
@@ -94,6 +107,9 @@ class _AssistantSelectionScreenState extends State<AssistantSelectionScreen> {
         children: [
           // Hero Quick Connect Bar (Kiểu Lily AI: Bấm để kết nối & trò chuyện rảnh tay)
           _buildQuickConnectHero(context),
+
+          // Banner nhắc kích hoạt Tiếng Việt
+          _buildActivationBanner(context),
 
           // Category filter bar
           Container(
@@ -284,6 +300,68 @@ class _AssistantSelectionScreenState extends State<AssistantSelectionScreen> {
                       SizedBox(width: 4),
                       Icon(Icons.arrow_forward_ios_rounded, color: Colors.white, size: 12),
                     ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildActivationBanner(BuildContext context) {
+    final configProvider = Provider.of<ConfigProvider>(context);
+    final mac =
+        configProvider.xiaozhiConfigs.isNotEmpty
+            ? configProvider.xiaozhiConfigs.first.macAddress
+            : '';
+
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 2, 16, 6),
+      child: Material(
+        color: const Color(0xFFFFFBEB),
+        borderRadius: BorderRadius.circular(12),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(12),
+          onTap: () {
+            XiaozhiActivationService.instance.showActivationDialog(context, mac);
+          },
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: const Color(0xFFFDE68A)),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.vpn_key_rounded, color: Color(0xFFD97706), size: 18),
+                const SizedBox(width: 10),
+                const Expanded(
+                  child: Text(
+                    'Kích hoạt Tiếng Việt: Chạm để lấy Mã 6 số liên kết xiaozhi.me',
+                    style: TextStyle(
+                      color: Color(0xFF92400E),
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w600,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFD97706),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Text(
+                    'Lấy mã',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                 ),
               ],
@@ -513,8 +591,8 @@ class _AssistantSelectionScreenState extends State<AssistantSelectionScreen> {
                       id: 'default_mina_ai',
                       name: 'Mina AI',
                       websocketUrl: 'wss://api.tenclass.net/xiaozhi/v1/',
-                      macAddress: '6f:99:e4:02:8e:de',
-                      token: '',
+                      macAddress: '24:dc:c3:01:02:03',
+                      token: 'test-token',
                     ),
       );
 

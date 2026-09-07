@@ -9,6 +9,7 @@ import 'package:ai_assistant/models/minimax_config.dart';
 import 'package:ai_assistant/widgets/settings_section.dart';
 import 'package:ai_assistant/services/dify_service.dart';
 import 'package:ai_assistant/services/ota_service.dart';
+import 'package:ai_assistant/services/xiaozhi_activation_service.dart';
 
 // 引入main.dart中定义的常量
 import 'package:ai_assistant/main.dart' show enableDebugTools;
@@ -230,6 +231,87 @@ class _SettingsScreenState extends State<SettingsScreen>
                     },
                   ),
                 ],
+              ),
+            ),
+            const SizedBox(height: 16),
+            _buildCard(
+              title: 'Kích hoạt Tiếng Việt (xiaozhi.me)',
+              subtitle: 'Lấy mã 6 số để liên kết thiết bị ô tô với tài khoản Mina AI',
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Consumer<ConfigProvider>(
+                  builder: (context, configProvider, _) {
+                    final mac = configProvider.xiaozhiConfigs.isNotEmpty
+                        ? configProvider.xiaozhiConfigs.first.macAddress
+                        : '';
+                    return Column(
+                      children: [
+                        Row(
+                          children: [
+                            Container(
+                              width: 44,
+                              height: 44,
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFFEF3C7),
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: const Icon(
+                                Icons.vpn_key_rounded,
+                                color: Color(0xFFD97706),
+                                size: 24,
+                              ),
+                            ),
+                            const SizedBox(width: 14),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text(
+                                    'Liên kết Trợ lý Mina AI',
+                                    style: TextStyle(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    'MAC: ${mac.isEmpty ? "Chưa có" : mac}',
+                                    style: const TextStyle(
+                                      fontSize: 13,
+                                      color: Color(0xFF64748B),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+                        SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton.icon(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFFD97706),
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                            ),
+                            icon: const Icon(Icons.key_rounded, size: 20),
+                            label: const Text(
+                              'Lấy mã kích hoạt Tiếng Việt (6 số)',
+                              style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+                            ),
+                            onPressed: () {
+                              XiaozhiActivationService.instance.showActivationDialog(context, mac);
+                            },
+                          ),
+                        ),
+                      ],
+                    );
+                  },
+                ),
               ),
             ),
             const SizedBox(height: 16),
@@ -2158,6 +2240,26 @@ class _SettingsScreenState extends State<SettingsScreen>
                   ),
                 ),
               ],
+            ),
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: const Color(0xFFD97706),
+                  side: const BorderSide(color: Color(0xFFF59E0B)),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                ),
+                icon: const Icon(Icons.vpn_key_rounded, size: 16),
+                label: const Text('Lấy mã kích hoạt Tiếng Việt (xiaozhi.me)'),
+                onPressed: () {
+                  XiaozhiActivationService.instance.showActivationDialog(
+                    context,
+                    config.macAddress,
+                  );
+                },
+              ),
             ),
           ],
         ),

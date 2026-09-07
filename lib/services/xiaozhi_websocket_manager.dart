@@ -103,6 +103,7 @@ class XiaozhiWebSocketManager {
           'device-id': _deviceId ?? '',
           'client-id': _deviceId ?? '',
           'protocol-version': '1',
+          'Accept-Language': 'vi-VN,vi;q=0.9,en-US;q=0.8',
         };
 
         // 添加Authorization头，参考Java实现
@@ -201,6 +202,9 @@ class XiaozhiWebSocketManager {
       "type": "hello",
       "version": 1,
       "transport": "websocket",
+      "features": {
+        "mcp": true,
+      },
       "audio_params": {
         "format": "opus",
         "sample_rate": 16000,
