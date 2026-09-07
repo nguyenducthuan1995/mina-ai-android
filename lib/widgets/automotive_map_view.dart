@@ -40,39 +40,50 @@ class _AutomotiveMapViewState extends State<AutomotiveMapView>
       vsync: this,
       duration: const Duration(seconds: 2),
     )..repeat(reverse: true);
-    _initGps();
+    // Delay GPS init 3s để không làm nhiễu WebSocket connection lúc mở màn hình
+    Future.delayed(const Duration(seconds: 3), () {
+      if (mounted) _initGps();
+    });
   }
 
   Future<void> _initGps() async {
-    bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
-    if (!serviceEnabled) return;
-
-    LocationPermission permission = await Geolocator.checkPermission();
-    if (permission == LocationPermission.denied) {
-      permission = await Geolocator.requestPermission();
-      if (permission == LocationPermission.denied) return;
-    }
-    if (permission == LocationPermission.deniedForever) return;
-
-    setState(() => _locationPermissionGranted = true);
-
-    // Lấy vị trí hiện tại ngay lập tức
     try {
-      final pos = await Geolocator.getCurrentPosition(
+      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) return;
+
+      LocationPermission permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+        if (permission == LocationPermission.denied) return;
+      }
+      if (permission == LocationPermission.deniedForever) return;
+
+      if (!mounted) return;
+      setState(() => _locationPermissionGranted = true);
+
+      // Lấy vị trí hiện tại
+      try {
+        final pos = await Geolocator.getCurrentPosition(
+          locationSettings: const LocationSettings(
+            accuracy: LocationAccuracy.low, // dùng low để nhanh hơn
+          ),
+        );
+        if (mounted) _updatePosition(pos);
+      } catch (_) {}
+
+      // Lắng nghe cập nhật liên tục
+      _positionSubscription = Geolocator.getPositionStream(
         locationSettings: const LocationSettings(
           accuracy: LocationAccuracy.high,
+          distanceFilter: 10, // cập nhật mỗi 10m để tiết kiệm pin
         ),
+      ).listen(
+        _updatePosition,
+        onError: (_) {}, // ignore stream errors
       );
-      _updatePosition(pos);
-    } catch (_) {}
-
-    // Lắng nghe cập nhật liên tục
-    _positionSubscription = Geolocator.getPositionStream(
-      locationSettings: const LocationSettings(
-        accuracy: LocationAccuracy.high,
-        distanceFilter: 5, // cập nhật mỗi 5m
-      ),
-    ).listen(_updatePosition);
+    } catch (_) {
+      // GPS không khả dụng, bỏ qua
+    }
   }
 
   void _updatePosition(Position pos) {
