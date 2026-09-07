@@ -7,6 +7,7 @@ import 'package:ai_assistant/models/xiaozhi_config.dart';
 import 'package:ai_assistant/models/assistant_persona.dart';
 import 'package:ai_assistant/providers/conversation_provider.dart';
 import 'package:ai_assistant/services/xiaozhi_service.dart';
+import 'package:ai_assistant/services/automotive_tool_service.dart';
 import 'dart:async';
 import 'dart:io';
 
@@ -149,9 +150,22 @@ class _VoiceCallScreenState extends State<VoiceCallScreen>
       } else if (type == 'stt') {
         final text = message['text'] ?? '';
         if (text.isNotEmpty) {
+          final lower = text.toLowerCase();
+          final isNav = lower.contains('dẫn đường') ||
+              lower.contains('chỉ đường') ||
+              lower.contains('bản đồ') ||
+              lower.contains('google map') ||
+              lower.contains('tìm đường') ||
+              lower.contains('cây xăng') ||
+              lower.contains('trạm xăng') ||
+              lower.contains('đi đến') ||
+              lower.contains('đi tới');
           setState(() {
-            _currentSubtitle = 'Bạn: $text';
-            _statusText = 'Mina AI đang suy nghĩ...';
+            _currentSubtitle = isNav
+                ? 'Bạn: $text\n🚗 Đang mở Google Maps dẫn đường...'
+                : 'Bạn: $text';
+            _statusText =
+                isNav ? 'Đang mở Google Maps...' : 'Mina AI đang suy nghĩ...';
             _isSpeaking = false;
           });
         }
@@ -675,21 +689,21 @@ class _VoiceCallScreenState extends State<VoiceCallScreen>
           color: Colors.white,
           backgroundColor: const Color(0xFFEF4444),
           label: 'Kết thúc',
-          size: 54,
+          size: 52,
           onPressed: () async {
             _isManualExit = true;
             await _xiaozhiService.sendAbortMessage();
             if (mounted) Navigator.pop(context);
           },
         ),
-        const SizedBox(width: 28),
+        const SizedBox(width: 18),
         if (!_isConnected)
           _buildActionButton(
             icon: Icons.refresh_rounded,
             color: Colors.white,
             backgroundColor: const Color(0xFF10B981),
             label: 'Kết nối lại',
-            size: 58,
+            size: 56,
             onPressed: _connectToVoiceService,
           )
         else
@@ -698,7 +712,7 @@ class _VoiceCallScreenState extends State<VoiceCallScreen>
             color: Colors.white,
             backgroundColor: _isSpeaking ? const Color(0xFF10B981) : const Color(0xFF64748B),
             label: _isSpeaking ? 'Đang nghe' : 'Tạm dừng',
-            size: 58,
+            size: 56,
             onPressed: () {
               if (_isSpeaking) {
                 _xiaozhiService.stopListeningCall();
@@ -711,14 +725,30 @@ class _VoiceCallScreenState extends State<VoiceCallScreen>
               }
             },
           ),
-        const SizedBox(width: 28),
+        const SizedBox(width: 18),
         _buildActionButton(
           icon: Icons.pan_tool_rounded,
           color: Colors.white,
           backgroundColor: const Color(0xFFF59E0B),
           label: 'Ngắt lời',
-          size: 54,
+          size: 52,
           onPressed: _sendAbortMessage,
+        ),
+        const SizedBox(width: 18),
+        _buildActionButton(
+          icon: Icons.navigation_rounded,
+          color: Colors.white,
+          backgroundColor: const Color(0xFF2563EB),
+          label: 'Bản đồ',
+          size: 52,
+          onPressed: () {
+            AutomotiveToolService.instance.openNavigation('');
+            _showCustomSnackbar(
+              message: 'Đang mở Google Maps dẫn đường...',
+              icon: Icons.navigation_rounded,
+              iconColor: Colors.blueAccent,
+            );
+          },
         ),
       ],
     );

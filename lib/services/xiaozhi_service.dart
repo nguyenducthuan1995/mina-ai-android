@@ -8,6 +8,7 @@ import 'package:flutter_sound/flutter_sound.dart';
 import '../services/xiaozhi_websocket_manager.dart';
 import '../utils/device_util.dart';
 import '../utils/audio_util.dart';
+import 'automotive_tool_service.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
 /// 小智服务事件类型
@@ -659,11 +660,18 @@ class XiaozhiService {
           final String text = jsonData['text'] ?? '';
           if (text.isNotEmpty) {
             print('$TAG: 收到语音识别结果: $text');
+            // Tự động kiểm tra khẩu lệnh dẫn đường trên ô tô để mở Google Maps ngay lập tức
+            AutomotiveToolService.instance.processVoiceCommand(text);
             // 先分发用户消息事件
             _dispatchEvent(
               XiaozhiServiceEvent(XiaozhiServiceEventType.userMessage, text),
             );
           }
+          break;
+
+        case 'mcp':
+          // Xử lý các yêu cầu gọi công cụ MCP từ máy chủ
+          _handleMcpMessage(jsonData);
           break;
 
         case 'emotion':
@@ -686,6 +694,83 @@ class XiaozhiService {
       }
     } catch (e) {
       print('$TAG: 解析消息失败: $e, 原始消息: $message');
+    }
+  }
+
+  /// Xử lý các yêu cầu MCP từ máy chủ XiaoZhi (Dẫn đường, Siêu thị giảm giá, v.v.)
+  Future<void> _handleMcpMessage(Map<String, dynamic> data) async {
+    try {
+      dynamic payload = data['payload'];
+      if (payload is String) {
+        try {
+          payload = jsonDecode(payload);
+        } catch (_) {}
+      }
+      if (payload is! Map<String, dynamic>) return;
+
+      final id = payload['id'];
+      final method = payload['method']?.toString() ?? '';
+      final params = payload['params'] as Map<String, dynamic>?;
+
+      print('$TAG: [MCP] Nhận yêu cầu: $method (id: $id)');
+
+      if (method == 'initialize') {
+        final reply = {
+          if (_sessionId != null) 'session_id': _sessionId,
+          'type': 'mcp',
+          'payload': {
+            'jsonrpc': '2.0',
+            'id': id,
+            'result': {
+              'protocolVersion': '2024-11-05',
+              'capabilities': {
+                'tools': {},
+              },
+              'serverInfo': {
+                'name': 'Mina AI Car Assistant',
+                'version': '2.0.2',
+              },
+            },
+          },
+        };
+        _webSocketManager?.sendMessage(jsonEncode(reply));
+        print('$TAG: [MCP] Đã phản hồi initialize');
+      } else if (method == 'tools/list') {
+        final tools = AutomotiveToolService.instance.getMcpTools();
+        final reply = {
+          if (_sessionId != null) 'session_id': _sessionId,
+          'type': 'mcp',
+          'payload': {
+            'jsonrpc': '2.0',
+            'id': id,
+            'result': {
+              'tools': tools,
+            },
+          },
+        };
+        _webSocketManager?.sendMessage(jsonEncode(reply));
+        print('$TAG: [MCP] Đã phản hồi tools/list với ${tools.length} công cụ');
+      } else if (method == 'tools/call') {
+        if (params == null) return;
+        final toolName = params['name']?.toString() ?? '';
+        final args = (params['arguments'] as Map<String, dynamic>?) ?? {};
+        print('$TAG: [MCP] Gọi công cụ: $toolName với args: $args');
+
+        final result = await AutomotiveToolService.instance.executeMcpTool(toolName, args);
+        final reply = {
+          if (_sessionId != null) 'session_id': _sessionId,
+          'type': 'mcp',
+          'payload': {
+            'jsonrpc': '2.0',
+            'id': id,
+            'result': result,
+          },
+        };
+        _webSocketManager?.sendMessage(jsonEncode(reply));
+        print('$TAG: [MCP] Đã phản hồi kết quả gọi công cụ $toolName');
+      }
+    } catch (e) {
+      print('$TAG: [MCP] Lỗi xử lý yêu cầu MCP: $e');
     }
   }
 

@@ -1,8 +1,8 @@
 {
-  "version": "2.0.1",
-  "version_code": 3,
-  "title": "Bản cập nhật Mina AI v2.0.1 (Tiếng Việt & OTA)",
-  "changelog": "• Kích hoạt nhận diện và giọng nói Tiếng Việt chuẩn qua XiaoZhi Console\n• Tự động cấp mã kích hoạt 6 số (Activation Code) hiển thị trực tiếp trên màn hình\n• Chuẩn hóa MAC ID tương thích hệ sinh thái XiaoZhi\n• Cập nhật OTA trực tiếp mượt mà ngay trên xe",
+  "version": "2.0.2",
+  "version_code": 4,
+  "title": "Bản cập nhật Mina AI v2.0.2 (Google Maps & Săn Deal)",
+  "changelog": "• Tự động bật Google Maps dẫn đường khi nói 'Dẫn đường đến...', 'Chỉ đường tới...'\n• Tích hợp nút Bản đồ nhanh ngay trên màn hình đàm thoại\n• Hỗ trợ công cụ MCP & cập nhật ưu đãi khuyến mại siêu thị Đức (Kaufland, Lidl, Aldi)\n• Tối ưu hóa giao diện đàm thoại rảnh tay khi lái xe",
   "apk_url": "https://github.com/nguyenducthuan1995/mina-ai-android/releases/download/latest/MinaAI-debug.apk",
   "force_update": false
 }

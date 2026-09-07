@@ -23,6 +23,10 @@ class MainActivity : FlutterActivity() {
                 } else {
                     result.error("INVALID_PATH", "File path is null", null)
                 }
+            } else if (call.method == "openNavigation") {
+                val destination = call.argument<String>("destination") ?: ""
+                val success = openNavigation(destination)
+                result.success(success)
             } else {
                 result.notImplemented()
             }
@@ -52,6 +56,54 @@ class MainActivity : FlutterActivity() {
         } catch (e: Exception) {
             e.printStackTrace()
             false
+        }
+    }
+
+    private fun openNavigation(destination: String): Boolean {
+        // 1. Thử mở Google Maps app bằng google.navigation hoặc geo URI
+        try {
+            val uriStr = if (destination.isNotBlank()) {
+                "google.navigation:q=" + Uri.encode(destination)
+            } else {
+                "geo:0,0?q=Kaufland"
+            }
+            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(uriStr)).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                setPackage("com.google.android.apps.maps")
+            }
+            startActivity(intent)
+            return true
+        } catch (e: Exception) {
+            // 2. Thử mở bằng geo intent chung (hỗ trợ bất kỳ app bản đồ nào cài trên xe)
+            try {
+                val geoUriStr = if (destination.isNotBlank()) {
+                    "geo:0,0?q=" + Uri.encode(destination)
+                } else {
+                    "geo:0,0"
+                }
+                val geoIntent = Intent(Intent.ACTION_VIEW, Uri.parse(geoUriStr)).apply {
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                }
+                startActivity(geoIntent)
+                return true
+            } catch (e2: Exception) {
+                // 3. Fallback mở Google Maps trên trình duyệt web
+                try {
+                    val fallbackUri = if (destination.isNotBlank()) {
+                        "https://www.google.com/maps/dir/?api=1&destination=" + Uri.encode(destination)
+                    } else {
+                        "https://www.google.com/maps"
+                    }
+                    val fallbackIntent = Intent(Intent.ACTION_VIEW, Uri.parse(fallbackUri)).apply {
+                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                    }
+                    startActivity(fallbackIntent)
+                    return true
+                } catch (e3: Exception) {
+                    e3.printStackTrace()
+                    return false
+                }
+            }
         }
     }
 }
