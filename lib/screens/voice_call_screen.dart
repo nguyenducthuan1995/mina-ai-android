@@ -91,7 +91,7 @@ class _VoiceCallScreenState extends State<VoiceCallScreen>
           _statusText = 'Đã kết nối';
         });
 
-        Future.delayed(const Duration(milliseconds: 800), () {
+        Future.delayed(const Duration(milliseconds: 500), () {
           if (mounted && _isConnected && !_isSpeaking) {
             _startSpeaking();
           }
@@ -102,12 +102,14 @@ class _VoiceCallScreenState extends State<VoiceCallScreen>
         if (state == 'start') {
           setState(() {
             _isAiSpeaking = true;
+            _isSpeaking = false;
             _statusText = 'Mina AI đang nói...';
           });
         } else if (state == 'sentence_start' && text.isNotEmpty) {
           setState(() {
             _currentSubtitle = text;
             _isAiSpeaking = true;
+            _isSpeaking = false;
             _statusText = 'Mina AI đang nói...';
           });
         } else if (state == 'stop') {
@@ -115,16 +117,20 @@ class _VoiceCallScreenState extends State<VoiceCallScreen>
             _isAiSpeaking = false;
             _statusText = 'Đang lắng nghe...';
           });
-          if (!_isSpeaking) {
-            _startSpeaking();
-          }
+          // Tự động mở lại mic để nghe người dùng nói tiếp
+          Future.delayed(const Duration(milliseconds: 300), () {
+            if (mounted && _isConnected && !_isSpeaking && !_isAiSpeaking) {
+              _startSpeaking();
+            }
+          });
         }
       } else if (type == 'stt') {
         final text = message['text'] ?? '';
         if (text.isNotEmpty) {
           setState(() {
             _currentSubtitle = 'Bạn: $text';
-            _statusText = 'Đã nhận diện giọng nói';
+            _statusText = 'Mina AI đang suy nghĩ...';
+            _isSpeaking = false;
           });
         }
       }
@@ -169,6 +175,13 @@ class _VoiceCallScreenState extends State<VoiceCallScreen>
         role: MessageRole.assistant,
         content: 'Cuộc trò chuyện Mina AI bắt đầu',
       );
+
+      // Kích hoạt Micro lắng nghe ngay khi vào màn hình cuộc gọi
+      Future.delayed(const Duration(milliseconds: 600), () {
+        if (mounted && _isConnected && !_isSpeaking) {
+          _startSpeaking();
+        }
+      });
     } catch (e) {
       setState(() {
         _statusText = 'Kết nối thất bại';
@@ -250,6 +263,7 @@ class _VoiceCallScreenState extends State<VoiceCallScreen>
     _xiaozhiService.sendAbortMessage();
     setState(() {
       _isAiSpeaking = false;
+      _isSpeaking = false;
       _statusText = 'Đã ngắt lời';
     });
 
