@@ -17,6 +17,9 @@ class AudioUtil {
   static const int SAMPLE_RATE = 16000;
   static const int CHANNELS = 1;
   static const int FRAME_DURATION = 60; // 毫秒
+  static const int SAMPLES_PER_FRAME = (SAMPLE_RATE * FRAME_DURATION) ~/ 1000; // 960 samples
+  static const int BYTES_PER_FRAME = SAMPLES_PER_FRAME * 2; // 1920 bytes
+  static final List<int> _pcmBuffer = [];
 
   static final AudioRecorder _audioRecorder = AudioRecorder();
   static ja.AudioPlayer? _player;
@@ -229,6 +232,7 @@ class AudioUtil {
       // 尝试直接使用音频流
       try {
         print('$TAG: 尝试启动流式录音');
+        _pcmBuffer.clear();
         final stream = await _audioRecorder.startStream(
           const RecordConfig(
             encoder: AudioEncoder.pcm16bits,
@@ -240,13 +244,29 @@ class AudioUtil {
         _isRecording = true;
         print('$TAG: 流式录音启动成功');
 
-        // 直接从流中处理数据
+        // 直接从流中处理数据，使用累加缓冲区确保每帧恰好 60ms (960 采样 / 1920 字节)
         stream.listen(
           (data) async {
-            if (data.isNotEmpty && data.length % 2 == 0) {
-              final opusData = await encodeToOpus(data);
-              if (opusData != null) {
-                _audioStreamController.add(opusData);
+            if (data.isNotEmpty) {
+              _pcmBuffer.addAll(data);
+              while (_pcmBuffer.length >= BYTES_PER_FRAME) {
+                final frameBytes = Uint8List.fromList(
+                  _pcmBuffer.sublist(0, BYTES_PER_FRAME),
+                );
+                _pcmBuffer.removeRange(0, BYTES_PER_FRAME);
+
+                try {
+                  final Int16List pcmInt16 = frameBytes.buffer.asInt16List(
+                    frameBytes.offsetInBytes,
+                    SAMPLES_PER_FRAME,
+                  );
+                  final opusData = Uint8List.fromList(
+                    _encoder.encode(input: pcmInt16),
+                  );
+                  _audioStreamController.add(opusData);
+                } catch (e) {
+                  print('$TAG: Opus编码失败: $e');
+                }
               }
             }
           },
@@ -278,6 +298,30 @@ class AudioUtil {
     // 取消定时器
     _audioProcessingTimer?.cancel();
 
+    // 如果缓冲区还有残留音频，填充至1920字节后发出最后一帧
+    if (_pcmBuffer.isNotEmpty) {
+      while (_pcmBuffer.length < BYTES_PER_FRAME) {
+        _pcmBuffer.add(0);
+      }
+      try {
+        final frameBytes = Uint8List.fromList(
+          _pcmBuffer.sublist(0, BYTES_PER_FRAME),
+        );
+        _pcmBuffer.clear();
+        final Int16List pcmInt16 = frameBytes.buffer.asInt16List(
+          frameBytes.offsetInBytes,
+          SAMPLES_PER_FRAME,
+        );
+        final opusData = Uint8List.fromList(
+          _encoder.encode(input: pcmInt16),
+        );
+        _audioStreamController.add(opusData);
+      } catch (e) {
+        print('$TAG: 编码末尾音频帧失败: $e');
+      }
+    }
+    _pcmBuffer.clear();
+
     // 停止录音
     try {
       final path = await _audioRecorder.stop();
@@ -287,48 +331,6 @@ class AudioUtil {
     } catch (e) {
       print('$TAG: 停止录音失败: $e');
       _isRecording = false;
-      return null;
-    }
-  }
-
-  /// 将PCM数据编码为Opus格式
-  static Future<Uint8List?> encodeToOpus(Uint8List pcmData) async {
-    try {
-      // 删除频繁日志
-      // 转换PCM数据为Int16List (小端字节序，与Android一致)
-      final Int16List pcmInt16 = Int16List.fromList(
-        List.generate(
-          pcmData.length ~/ 2,
-          (i) => (pcmData[i * 2]) | (pcmData[i * 2 + 1] << 8),
-        ),
-      );
-
-      // 确保数据长度符合Opus要求（必须是2.5ms、5ms、10ms、20ms、40ms或60ms的采样数）
-      final int samplesPerFrame = (SAMPLE_RATE * FRAME_DURATION) ~/ 1000;
-
-      Uint8List encoded;
-
-      // 处理过短的数据
-      if (pcmInt16.length < samplesPerFrame) {
-        // 对于过短的数据，可以通过添加静音来填充到所需长度
-        final Int16List paddedData = Int16List(samplesPerFrame);
-        for (int i = 0; i < pcmInt16.length; i++) {
-          paddedData[i] = pcmInt16[i];
-        }
-
-        // 编码填充后的数据
-        encoded = Uint8List.fromList(_encoder.encode(input: paddedData));
-      } else {
-        // 对于足够长的数据，裁剪到精确的帧长度
-        encoded = Uint8List.fromList(
-          _encoder.encode(input: pcmInt16.sublist(0, samplesPerFrame)),
-        );
-      }
-
-      return encoded;
-    } catch (e, stackTrace) {
-      print('$TAG: Opus编码失败: $e');
-      print(stackTrace);
       return null;
     }
   }

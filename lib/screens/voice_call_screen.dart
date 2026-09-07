@@ -64,7 +64,6 @@ class _VoiceCallScreenState extends State<VoiceCallScreen>
       websocketUrl: widget.xiaozhiConfig.websocketUrl,
       macAddress: widget.xiaozhiConfig.macAddress,
       token: widget.xiaozhiConfig.token,
-      sessionId: widget.conversation.id,
     );
 
     _xiaozhiService.setMessageListener(_handleServerMessage);
@@ -139,57 +138,66 @@ class _VoiceCallScreenState extends State<VoiceCallScreen>
 
   @override
   void dispose() {
-    _xiaozhiService.switchToChatMode();
     _callTimer?.cancel();
     _audioVisualizerTimer?.cancel();
     _animationController.dispose();
-    _xiaozhiService.stopPlayback();
+    _xiaozhiService.disconnectVoiceCall();
     super.dispose();
   }
 
   void _connectToVoiceService() async {
     setState(() {
-      _statusText = 'Đang chuẩn bị...';
+      _statusText = 'Đang kết nối...';
+      _isConnected = false;
     });
 
     try {
-      await _xiaozhiService.switchToVoiceCallMode();
+      final success = await _xiaozhiService.connectVoiceCall();
+      if (!mounted) return;
 
-      setState(() {
-        _statusText = 'Đã kết nối';
-        _isConnected = true;
-      });
+      if (success) {
+        setState(() {
+          _statusText = 'Đã kết nối';
+          _isConnected = true;
+          _serverReady = true;
+        });
 
-      if (mounted) {
-        _showCustomSnackbar(
-          message: 'Đã vào chế độ trò chuyện xe hơi',
-          icon: Icons.check_circle,
-          iconColor: Colors.greenAccent,
-        );
-      }
-
-      _startCallTimer();
-
-      Provider.of<ConversationProvider>(context, listen: false).addMessage(
-        conversationId: widget.conversation.id,
-        role: MessageRole.assistant,
-        content: 'Cuộc trò chuyện Mina AI bắt đầu',
-      );
-
-      // Kích hoạt Micro lắng nghe ngay khi vào màn hình cuộc gọi
-      Future.delayed(const Duration(milliseconds: 600), () {
-        if (mounted && _isConnected && !_isSpeaking) {
-          _startSpeaking();
+        if (mounted) {
+          _showCustomSnackbar(
+            message: 'Đã kết nối trợ lý giọng nói xe hơi',
+            icon: Icons.check_circle,
+            iconColor: Colors.greenAccent,
+          );
         }
-      });
-    } catch (e) {
-      setState(() {
-        _statusText = 'Kết nối thất bại';
-        _isConnected = false;
-      });
-      print('VoiceCall: Kết nối thất bại: $e');
 
+        _startCallTimer();
+
+        Provider.of<ConversationProvider>(context, listen: false).addMessage(
+          conversationId: widget.conversation.id,
+          role: MessageRole.assistant,
+          content: 'Cuộc trò chuyện Mina AI bắt đầu',
+        );
+
+        // Kích hoạt Micro lắng nghe sau khi kết nối hoàn tất
+        Future.delayed(const Duration(milliseconds: 500), () {
+          if (mounted && _isConnected && !_isSpeaking && !_isAiSpeaking) {
+            _startSpeaking();
+          }
+        });
+      } else {
+        setState(() {
+          _statusText = 'Kết nối thất bại';
+          _isConnected = false;
+        });
+      }
+    } catch (e) {
       if (mounted) {
+        setState(() {
+          _statusText = 'Kết nối thất bại';
+          _isConnected = false;
+        });
+        print('VoiceCall: Kết nối thất bại: $e');
+
         _showCustomSnackbar(
           message: 'Không thể kết nối: $e',
           icon: Icons.error_outline,

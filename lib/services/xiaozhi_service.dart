@@ -58,6 +58,7 @@ class XiaozhiService {
   WebSocketChannel? _ws;
   bool _hasStartedCall = false;
   MessageListener? _messageListener;
+  Completer<bool>? _connectCompleter;
 
   /// 工厂构造函数，实现单例模式
   factory XiaozhiService({
@@ -70,7 +71,6 @@ class XiaozhiService {
       websocketUrl: websocketUrl,
       macAddress: macAddress,
       token: token,
-      sessionId: sessionId,
     );
     return _instance!;
   }
@@ -80,9 +80,8 @@ class XiaozhiService {
     required this.websocketUrl,
     required this.macAddress,
     required this.token,
-    String? sessionId,
   }) {
-    _sessionId = sessionId;
+    _sessionId = null;
     _init();
   }
 
@@ -176,17 +175,28 @@ class XiaozhiService {
   }
 
   /// 连接到小智服务
-  Future<void> connect() async {
-    if (_isConnected && _webSocketManager != null && _webSocketManager!.isConnected) return;
+  Future<bool> connect() async {
+    if (_isConnected &&
+        _webSocketManager != null &&
+        _webSocketManager!.isConnected &&
+        _sessionId != null) {
+      return true;
+    }
 
     try {
       print('$TAG: 开始连接服务器...');
+      _sessionId = null;
 
       // 如果已有旧的WebSocket管理器，先确保断开并清理
       if (_webSocketManager != null) {
         await _webSocketManager!.disconnect();
         _webSocketManager = null;
       }
+
+      if (_connectCompleter != null && !_connectCompleter!.isCompleted) {
+        _connectCompleter!.complete(false);
+      }
+      _connectCompleter = Completer<bool>();
 
       // 创建WebSocket管理器
       _webSocketManager = XiaozhiWebSocketManager(
@@ -199,17 +209,32 @@ class XiaozhiService {
 
       // 连接WebSocket
       await _webSocketManager!.connect(websocketUrl, token);
+
+      // 等待服务器 hello 返回 session_id (最多等待 5 秒)
+      final success = await _connectCompleter!.future.timeout(
+        const Duration(seconds: 5),
+        onTimeout: () {
+          print('$TAG: 连接等待服务器 hello 超时');
+          return false;
+        },
+      );
+      return success;
     } catch (e) {
       print('$TAG: 连接失败: $e');
       _dispatchEvent(
         XiaozhiServiceEvent(XiaozhiServiceEventType.error, '连接小智服务失败: $e'),
       );
+      return false;
     }
   }
 
   /// 断开小智服务连接
   Future<void> disconnect() async {
     try {
+      if (_connectCompleter != null && !_connectCompleter!.isCompleted) {
+        _connectCompleter!.complete(false);
+      }
+
       // 取消音频流订阅
       await _audioStreamSubscription?.cancel();
       _audioStreamSubscription = null;
@@ -302,7 +327,10 @@ class XiaozhiService {
   }
 
   /// 连接语音通话
-  Future<void> connectVoiceCall() async {
+  Future<bool> connectVoiceCall() async {
+    _isVoiceCallActive = true;
+    _hasStartedCall = false;
+
     try {
       // 简化流程，确保权限和音频准备就绪
       if (Platform.isIOS || Platform.isAndroid) {
@@ -312,7 +340,7 @@ class XiaozhiService {
           _dispatchEvent(
             XiaozhiServiceEvent(XiaozhiServiceEventType.error, '麦克风权限被拒绝'),
           );
-          return;
+          return false;
         }
       }
 
@@ -321,27 +349,10 @@ class XiaozhiService {
       await AudioUtil.initRecorder();
       await AudioUtil.initPlayer();
 
-      print('$TAG: 正在连接 $websocketUrl');
-      print('$TAG: 设备ID: $macAddress');
-      print('$TAG: Token启用: true');
-      print('$TAG: 使用Token: $token');
-
-      // 如果已有旧的WebSocket管理器，先确保断开并清理
-      if (_webSocketManager != null) {
-        await _webSocketManager!.disconnect();
-        _webSocketManager = null;
-      }
-
-      // 使用 WebSocketManager 连接
-      _webSocketManager = XiaozhiWebSocketManager(
-        deviceId: macAddress,
-        enableToken: true,
-      );
-      _webSocketManager!.addListener(_onWebSocketEvent);
-      await _webSocketManager!.connect(websocketUrl, token);
+      return await connect();
     } catch (e) {
-      print('$TAG: 连接失败: $e');
-      rethrow;
+      print('$TAG: 连接语音通话失败: $e');
+      return false;
     }
   }
 
@@ -418,12 +429,11 @@ class XiaozhiService {
   /// 开始听说（语音通话模式）
   Future<void> startListeningCall() async {
     try {
-      // 确保已经有会话ID
-      if (_sessionId == null) {
-        print('$TAG: 没有会话ID，无法开始监听，等待会话ID初始化...');
-        // 等待短暂时间，然后重新检查会话ID
-        await Future.delayed(const Duration(milliseconds: 500));
-        if (_sessionId == null) {
+      // 确保已经有会话ID与连接
+      if (!_isConnected || _webSocketManager == null || _sessionId == null) {
+        print('$TAG: 没有会话ID或未连接，正在连接...');
+        final connected = await connect();
+        if (!connected || _sessionId == null) {
           print('$TAG: 会话ID仍然为空，放弃开始监听');
           throw Exception('会话ID为空，无法开始录音');
         }
@@ -431,44 +441,7 @@ class XiaozhiService {
 
       print('$TAG: 使用会话ID开始录音: $_sessionId');
 
-      // 请求麦克风权限
-      if (Platform.isIOS) {
-        final micStatus = await Permission.microphone.status;
-        if (micStatus != PermissionStatus.granted) {
-          final result = await Permission.microphone.request();
-          if (result != PermissionStatus.granted) {
-            print('$TAG: 麦克风权限被拒绝');
-            _dispatchEvent(
-              XiaozhiServiceEvent(XiaozhiServiceEventType.error, '麦克风权限被拒绝'),
-            );
-            return;
-          }
-        }
-
-        // 确保音频会话已初始化
-        await AudioUtil.initRecorder();
-      } else {
-        // Android权限请求
-        final status = await Permission.microphone.request();
-        if (status.isDenied) {
-          print('$TAG: 麦克风权限被拒绝');
-          _dispatchEvent(
-            XiaozhiServiceEvent(XiaozhiServiceEventType.error, '麦克风权限被拒绝'),
-          );
-          return;
-        }
-      }
-
-      // 开始录音
-      await AudioUtil.startRecording();
-
-      // 设置音频流订阅
-      _audioStreamSubscription = AudioUtil.audioStream.listen((opusData) {
-        // 发送音频数据
-        _webSocketManager?.sendBinaryMessage(opusData);
-      });
-
-      // 发送开始监听命令
+      // 1. 发送开始监听命令
       final message = {
         'session_id': _sessionId,
         'type': 'listen',
@@ -477,6 +450,16 @@ class XiaozhiService {
       };
       _webSocketManager?.sendMessage(jsonEncode(message));
       print('$TAG: 已发送开始监听消息 (语音通话模式)');
+
+      // 2. 设置音频流订阅
+      await _audioStreamSubscription?.cancel();
+      _audioStreamSubscription = AudioUtil.audioStream.listen((opusData) {
+        // 发送音频数据
+        _webSocketManager?.sendBinaryMessage(opusData);
+      });
+
+      // 3. 开始录音
+      await AudioUtil.startRecording();
     } catch (e) {
       print('$TAG: 开始监听失败: $e');
       throw Exception('开始语音输入失败: $e');
@@ -615,6 +598,10 @@ class XiaozhiService {
       switch (type) {
         case 'hello':
           // 处理服务器的hello响应
+          _isConnected = true;
+          if (_connectCompleter != null && !_connectCompleter!.isCompleted) {
+            _connectCompleter!.complete(true);
+          }
           if (_isVoiceCallActive && !_hasStartedCall) {
             _hasStartedCall = true;
             // 发送自动说话模式消息
@@ -734,32 +721,18 @@ class XiaozhiService {
 
   /// 开始监听（按住说话模式）
   Future<void> startListening({String mode = 'manual'}) async {
-    if (!_isConnected || _webSocketManager == null || !_webSocketManager!.isConnected) {
+    if (!_isConnected || _webSocketManager == null || _sessionId == null) {
       print('$TAG: Đang kết nối trước khi bắt đầu thu âm...');
-      await connect();
+      final connected = await connect();
+      if (!connected || _sessionId == null) {
+        throw Exception('Máy chủ chưa sẵn sàng, vui lòng nhấn giữ nói lại');
+      }
     }
 
     try {
-      // 等待会话ID (tối đa 2.5 giây)
-      if (_sessionId == null) {
-        print('$TAG: Đang chờ session_id từ máy chủ...');
-        int waitCount = 0;
-        while ((_sessionId == null || !_isConnected) && waitCount < 25) {
-          await Future.delayed(const Duration(milliseconds: 100));
-          waitCount++;
-        }
-        if (_sessionId == null) {
-          print('$TAG: Hết thời gian chờ session_id');
-          throw Exception('Máy chủ chưa sẵn sàng, vui lòng nhấn giữ nói lại');
-        }
-      }
-
       print('$TAG: Bắt đầu thu âm với session ID: $_sessionId');
 
-      // 开始录音
-      await AudioUtil.startRecording();
-
-      // 发送开始监听命令
+      // 1. 发送开始监听命令
       final message = {
         'session_id': _sessionId,
         'type': 'listen',
@@ -769,12 +742,15 @@ class XiaozhiService {
       _webSocketManager?.sendMessage(jsonEncode(message));
       print('$TAG: 已发送开始监听消息 (按住说话)');
 
-      // 设置音频流订阅
+      // 2. 设置音频流订阅
       await _audioStreamSubscription?.cancel();
       _audioStreamSubscription = AudioUtil.audioStream.listen((opusData) {
         // 发送音频数据
         _webSocketManager?.sendBinaryMessage(opusData);
       });
+
+      // 3. 开始录音
+      await AudioUtil.startRecording();
     } catch (e) {
       print('$TAG: 开始监听失败: $e');
       throw Exception('Bắt đầu thu âm thất bại: $e');
