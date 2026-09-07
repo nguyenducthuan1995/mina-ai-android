@@ -1,8 +1,8 @@
 {
-  "version": "2.0.4",
-  "version_code": 6,
-  "title": "Mina AI v2.0.4 — Bản đồ thực & GPS tốc độ thời gian thực",
-  "changelog": "• Sửa lỗi bản đồ hiển thị 'API KEY REQUIRED' — thay bằng Stadia dark map miễn phí, không cần API key\n• Hiển thị tốc độ thực từ GPS của xe (km/h) thay vì giá trị cứng 0 km/h\n• Bản đồ tự động theo dõi vị trí GPS, có thể kéo thủ công và nhấn nút định vị để quay về\n• Cảnh báo nếu GPS chưa được cấp quyền",
+  "version": "2.0.5",
+  "version_code": 7,
+  "title": "Mina AI v2.0.5 — Sửa lỗi kết nối & GPS ổn định",
+  "changelog": "• Sửa lỗi mất kết nối khi mở màn hình Lái xe (do GPS dialog xuất hiện quá sớm)\n• GPS xin quyền sau 3 giây để không ảnh hưởng kết nối server\n• Bản đồ dark Stadia Maps không cần API key (fix từ v2.0.4)\n• Tốc độ GPS thực (km/h) cập nhật theo xe",
   "apk_url": "https://github.com/nguyenducthuan1995/mina-ai-android/releases/latest/download/MinaAI-debug.apk",
   "force_update": false
 }
