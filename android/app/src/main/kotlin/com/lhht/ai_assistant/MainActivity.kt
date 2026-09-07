@@ -97,23 +97,21 @@ class MainActivity : FlutterActivity() {
         } catch (e2: Exception) {
             // tiếp tục fallback
         }
-                // 3. Fallback mở Google Maps trên trình duyệt web
-                try {
-                    val fallbackUri = if (destination.isNotBlank()) {
-                        "https://www.google.com/maps/dir/?api=1&destination=" + Uri.encode(destination)
-                    } else {
-                        "https://www.google.com/maps"
-                    }
-                    val fallbackIntent = Intent(Intent.ACTION_VIEW, Uri.parse(fallbackUri)).apply {
-                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
-                    }
-                    startActivity(fallbackIntent)
-                    return true
-                } catch (e3: Exception) {
-                    e3.printStackTrace()
-                    return false
-                }
+        // 3. Fallback mở Google Maps trên trình duyệt web
+        try {
+            val fallbackUri = if (destination.isNotBlank()) {
+                "https://www.google.com/maps/dir/?api=1&destination=" + Uri.encode(destination)
+            } else {
+                "https://www.google.com/maps"
             }
+            val fallbackIntent = Intent(Intent.ACTION_VIEW, Uri.parse(fallbackUri)).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            startActivity(fallbackIntent)
+            return true
+        } catch (e3: Exception) {
+            e3.printStackTrace()
+            return false
         }
     }
 }
