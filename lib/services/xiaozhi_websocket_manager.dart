@@ -30,6 +30,8 @@ class XiaozhiWebSocketManager {
   String? _deviceId;
   String? _token;
   bool _enableToken;
+  String? _systemPrompt; // System prompt của persona hiện tại
+  String _language = 'vi'; // Ngôn ngữ mặc định: tiếng Việt
 
   final List<XiaozhiWebSocketListener> _listeners = [];
   bool _isReconnecting = false;
@@ -37,7 +39,7 @@ class XiaozhiWebSocketManager {
   Timer? _reconnectTimer;
   StreamSubscription? _streamSubscription;
 
-  /// 构造函数
+  /// Constructor
   XiaozhiWebSocketManager({required String deviceId, bool enableToken = false})
     : _deviceId = deviceId,
       _enableToken = enableToken;
@@ -61,7 +63,14 @@ class XiaozhiWebSocketManager {
     }
   }
 
-  /// 连接到WebSocket服务器
+  /// Set persona (system prompt + ngôn ngữ) trước khi connect
+  /// Sẽ được gửi trong hello message để server biết dùng ngôn ngữ/role nào
+  void setPersona({String? systemPrompt, String language = 'vi'}) {
+    _systemPrompt = systemPrompt;
+    _language = language;
+  }
+
+  /// Kết nối đến WebSocket server
   Future<void> connect(String url, String token) async {
     if (url.isEmpty) {
       _dispatchEvent(
@@ -151,14 +160,14 @@ class XiaozhiWebSocketManager {
         cancelOnError: false,
       );
 
-      // 连接成功后发送Hello消息
+      // Dispatch connected event
       _dispatchEvent(
         XiaozhiEvent(type: XiaozhiEventType.connected, data: null),
       );
 
-      // 在发送认证信息之后发送Hello消息
+      // Gửi Hello message sau khi xác thực, kèm language + system_prompt
       Timer(Duration(milliseconds: 200), () {
-        _sendHelloMessage();
+        _sendHelloMessage(systemPrompt: _systemPrompt, language: _language);
       });
 
       print('$TAG: 已连接到 $uri');
@@ -196,9 +205,9 @@ class XiaozhiWebSocketManager {
     }
   }
 
-  /// 发送Hello消息
-  void _sendHelloMessage() {
-    final hello = {
+  /// Gửi Hello message — kèm language và system_prompt của persona hiện tại
+  void _sendHelloMessage({String? systemPrompt, String language = 'vi'}) {
+    final hello = <String, dynamic>{
       "type": "hello",
       "version": 1,
       "transport": "websocket",
@@ -211,7 +220,14 @@ class XiaozhiWebSocketManager {
         "channels": 1,
         "frame_duration": 60,
       },
+      // Chỉ định ngôn ngữ ưu tiên — một số server dùng field này để set ngôn ngữ AI
+      "language": language,
     };
+
+    // Gửi system_prompt nếu có — server hỗ trợ sẽ override ngôn ngữ/persona mặc định
+    if (systemPrompt != null && systemPrompt.isNotEmpty) {
+      hello["system_prompt"] = systemPrompt;
+    }
 
     sendMessage(jsonEncode(hello));
   }

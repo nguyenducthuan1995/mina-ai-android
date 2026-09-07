@@ -103,3 +103,6 @@ coverage/
 .env*
 !.env.example
 build_output/
+
+# ⚠️ API Keys — KHÔNG commit lên git public!
+lib/config/api_keys.dart

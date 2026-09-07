@@ -61,6 +61,7 @@ class XiaozhiService {
   bool _hasStartedCall = false;
   MessageListener? _messageListener;
   Completer<bool>? _connectCompleter;
+  String? _currentSystemPrompt; // System prompt của persona đang active
 
   bool get isAiSpeaking => _isAiSpeaking;
 
@@ -202,16 +203,23 @@ class XiaozhiService {
       }
       _connectCompleter = Completer<bool>();
 
-      // 创建WebSocket管理器
+      // Tạo WebSocket manager mới
       _webSocketManager = XiaozhiWebSocketManager(
         deviceId: macAddress,
         enableToken: true,
       );
 
-      // 添加WebSocket事件监听
+      // Set persona (system prompt + ngôn ngữ) trước khi connect
+      // Đảm bảo hello message được gửi với đúng ngôn ngữ và role
+      _webSocketManager!.setPersona(
+        systemPrompt: _currentSystemPrompt,
+        language: 'vi',
+      );
+
+      // Lắng nghe events
       _webSocketManager!.addListener(_onWebSocketEvent);
 
-      // 连接WebSocket
+      // Kết nối WebSocket
       await _webSocketManager!.connect(websocketUrl, token);
 
       // 等待服务器 hello 返回 session_id (最多等待 5 秒)
@@ -330,32 +338,34 @@ class XiaozhiService {
     }
   }
 
-  /// 连接语音通话
-  Future<bool> connectVoiceCall() async {
+  /// Kết nối voice call — truyền systemPrompt của persona để gửi lên server
+  Future<bool> connectVoiceCall({String? systemPrompt}) async {
     _isVoiceCallActive = true;
     _hasStartedCall = false;
+    // Lưu system prompt để dùng khi reconnect
+    if (systemPrompt != null) _currentSystemPrompt = systemPrompt;
 
     try {
-      // 简化流程，确保权限和音频准备就绪
+      // Yêu cầu quyền microphone
       if (Platform.isIOS || Platform.isAndroid) {
         final status = await Permission.microphone.request();
         if (status != PermissionStatus.granted) {
-          print('$TAG: 麦克风权限被拒绝');
+          print('$TAG: Quyền microphone bị từ chối');
           _dispatchEvent(
-            XiaozhiServiceEvent(XiaozhiServiceEventType.error, '麦克风权限被拒绝'),
+            XiaozhiServiceEvent(XiaozhiServiceEventType.error, 'Quyền microphone bị từ chối'),
           );
           return false;
         }
       }
 
-      // 初始化音频系统
+      // Khởi tạo audio system
       await AudioUtil.stopPlaying();
       await AudioUtil.initRecorder();
       await AudioUtil.initPlayer();
 
       return await connect();
     } catch (e) {
-      print('$TAG: 连接语音通话失败: $e');
+      print('$TAG: Kết nối voice call thất bại: $e');
       return false;
     }
   }

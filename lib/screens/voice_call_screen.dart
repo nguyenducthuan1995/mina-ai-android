@@ -192,8 +192,14 @@ class _VoiceCallScreenState extends State<VoiceCallScreen>
       _isConnected = false;
     });
 
+    // Lấy system prompt của persona hiện tại để gửi lên server
+    final persona = AssistantPersona.findById(widget.conversation.personaId);
+    final systemPrompt = persona?.systemPrompt;
+
     try {
-      final success = await _xiaozhiService.connectVoiceCall();
+      final success = await _xiaozhiService.connectVoiceCall(
+        systemPrompt: systemPrompt,
+      );
       if (!mounted) return;
 
       if (success) {

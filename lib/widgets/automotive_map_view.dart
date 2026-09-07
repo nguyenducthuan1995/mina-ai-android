@@ -4,6 +4,7 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:geolocator/geolocator.dart';
 import '../services/automotive_tool_service.dart';
+import '../config/api_keys.dart';
 
 class AutomotiveMapView extends StatefulWidget {
   final VoidCallback? onOpenExternalMaps;
@@ -40,8 +41,8 @@ class _AutomotiveMapViewState extends State<AutomotiveMapView>
       vsync: this,
       duration: const Duration(seconds: 2),
     )..repeat(reverse: true);
-    // Delay GPS init 3s để không làm nhiễu WebSocket connection lúc mở màn hình
-    Future.delayed(const Duration(seconds: 3), () {
+    // Delay GPS init 5s để WebSocket audio hoàn toàn kết nối trước, tránh xung đột
+    Future.delayed(const Duration(seconds: 5), () {
       if (mounted) _initGps();
     });
   }
@@ -126,12 +127,26 @@ class _AutomotiveMapViewState extends State<AutomotiveMapView>
               },
             ),
             children: [
-              // Tile layer: Stadia Alidade Smooth Dark (miễn phí, không cần API key)
+              // Layer 1: TomTom Basic Map tiles — chất lượng cao, ngôn ngữ tiếng Đức
+              // Free tier: 50,000 tiles/ngày — đủ dùng thoải mái
               TileLayer(
                 urlTemplate:
-                    'https://tiles.stadiamaps.com/tiles/alidade_smooth_dark/{z}/{x}/{y}{r}.png',
+                    'https://api.tomtom.com/map/1/tile/basic/main/{z}/{x}/{y}.png'
+                    '?key=${ApiKeys.tomtom}&language=de&tileSize=256',
                 userAgentPackageName: 'com.lhht.ai_assistant',
                 retinaMode: MediaQuery.of(context).devicePixelRatio > 1,
+                // Dùng OSM làm fallback nếu TomTom bị giới hạn
+                fallbackUrl: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+              ),
+
+              // Layer 2: TomTom Traffic Flow overlay — tình trạng tắc đường thời gian thực
+              // Màu xanh = thông thoáng, vàng = chậm, đỏ = tắc đường
+              TileLayer(
+                urlTemplate:
+                    'https://api.tomtom.com/traffic/map/4/tile/flow/absolute/{z}/{x}/{y}.png'
+                    '?key=${ApiKeys.tomtom}&tileSize=256',
+                userAgentPackageName: 'com.lhht.ai_assistant',
+                opacity: 0.7, // trong suốt để thấy bản đồ phía dưới
               ),
 
               // Marker vị trí xe hiện tại
