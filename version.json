@@ -1,8 +1,8 @@
 {
-  "version": "2.0.3",
-  "version_code": 5,
-  "title": "Bản cập nhật Mina AI v2.0.3 (Bản đồ Lái xe Trực tiếp & Tối ưu Giao diện)",
-  "changelog": "• Tích hợp bản đồ dẫn đường ban đêm chuyên dụng trực tiếp trên màn hình Lái xe (Mina Lái Xe)\n• Hiển thị biển báo tốc độ 50 km/h (chuẩn StVO Đức), la bàn và vị trí các siêu thị (Kaufland, Lidl, Shell)\n• Tự động ẩn banner 'Lấy mã' sau khi đã kích hoạt để màn hình xe luôn gọn gàng\n• Tối ưu mở Google Maps trực tiếp bằng package launcher",
+  "version": "2.0.4",
+  "version_code": 6,
+  "title": "Mina AI v2.0.4 — Bản đồ thực & GPS tốc độ thời gian thực",
+  "changelog": "• Sửa lỗi bản đồ hiển thị 'API KEY REQUIRED' — thay bằng OpenStreetMap dark theme miễn phí, không cần API key\n• Hiển thị tốc độ thực từ GPS của xe (km/h) thay vì giá trị cứng 0 km/h\n• Bản đồ tự động theo dõi vị trí GPS, có thể kéo thủ công và nhấn nút định vị để quay về\n• Cảnh báo nếu GPS chưa được cấp quyền\n• Thêm quyền GPS (ACCESS_FINE_LOCATION) vào ứng dụng",
   "apk_url": "https://github.com/nguyenducthuan1995/mina-ai-android/releases/download/latest/MinaAI-debug.apk",
   "force_update": false
 }

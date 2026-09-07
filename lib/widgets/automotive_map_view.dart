@@ -1,5 +1,8 @@
-import 'dart:math';
+import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:latlong2/latlong.dart';
+import 'package:geolocator/geolocator.dart';
 import '../services/automotive_tool_service.dart';
 
 class AutomotiveMapView extends StatefulWidget {
@@ -18,12 +21,16 @@ class AutomotiveMapView extends StatefulWidget {
 
 class _AutomotiveMapViewState extends State<AutomotiveMapView>
     with SingleTickerProviderStateMixin {
-  // Tọa độ trung tâm: Hannover, Đức (52.3759° N, 9.7320° E)
-  int _zoom = 13;
-  int _centerTileX = 4317;
-  int _centerTileY = 2692;
+  final MapController _mapController = MapController();
 
-  Offset _panOffset = Offset.zero;
+  // Hannover, Đức — vị trí mặc định khi chưa có GPS
+  LatLng _currentPosition = const LatLng(52.3759, 9.7320);
+  double _currentSpeedKmh = 0.0;
+  double _zoom = 15.0;
+  bool _locationPermissionGranted = false;
+  bool _isFollowingGps = true;
+  StreamSubscription<Position>? _positionSubscription;
+
   late AnimationController _pulseController;
 
   @override
@@ -33,41 +40,57 @@ class _AutomotiveMapViewState extends State<AutomotiveMapView>
       vsync: this,
       duration: const Duration(seconds: 2),
     )..repeat(reverse: true);
+    _initGps();
+  }
+
+  Future<void> _initGps() async {
+    bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) return;
+
+    LocationPermission permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+      if (permission == LocationPermission.denied) return;
+    }
+    if (permission == LocationPermission.deniedForever) return;
+
+    setState(() => _locationPermissionGranted = true);
+
+    // Lấy vị trí hiện tại ngay lập tức
+    try {
+      final pos = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+        ),
+      );
+      _updatePosition(pos);
+    } catch (_) {}
+
+    // Lắng nghe cập nhật liên tục
+    _positionSubscription = Geolocator.getPositionStream(
+      locationSettings: const LocationSettings(
+        accuracy: LocationAccuracy.high,
+        distanceFilter: 5, // cập nhật mỗi 5m
+      ),
+    ).listen(_updatePosition);
+  }
+
+  void _updatePosition(Position pos) {
+    if (!mounted) return;
+    setState(() {
+      _currentPosition = LatLng(pos.latitude, pos.longitude);
+      _currentSpeedKmh = (pos.speed * 3.6).clamp(0, 300); // m/s → km/h
+    });
+    if (_isFollowingGps) {
+      _mapController.move(_currentPosition, _zoom);
+    }
   }
 
   @override
   void dispose() {
+    _positionSubscription?.cancel();
     _pulseController.dispose();
     super.dispose();
-  }
-
-  void _zoomIn() {
-    if (_zoom < 16) {
-      setState(() {
-        _zoom++;
-        _centerTileX = _centerTileX * 2;
-        _centerTileY = _centerTileY * 2;
-      });
-    }
-  }
-
-  void _zoomOut() {
-    if (_zoom > 11) {
-      setState(() {
-        _zoom--;
-        _centerTileX = (_centerTileX / 2).floor();
-        _centerTileY = (_centerTileY / 2).floor();
-      });
-    }
-  }
-
-  void _resetCenter() {
-    setState(() {
-      _zoom = 13;
-      _centerTileX = 4317;
-      _centerTileY = 2692;
-      _panOffset = Offset.zero;
-    });
   }
 
   @override
@@ -76,210 +99,208 @@ class _AutomotiveMapViewState extends State<AutomotiveMapView>
       borderRadius: BorderRadius.circular(20),
       child: Stack(
         children: [
-          // 1. Lớp gạch bản đồ (Map Tiles Grid) có thể kéo rê (Pan)
-          GestureDetector(
-            onPanUpdate: (details) {
-              setState(() {
-                _panOffset += details.delta;
-              });
-            },
-            child: Container(
-              color: const Color(0xFF0F172A),
-              child: Transform.translate(
-                offset: _panOffset,
-                child: _buildTileGrid(),
-              ),
+          // --- Lớp bản đồ FlutterMap ---
+          FlutterMap(
+            mapController: _mapController,
+            options: MapOptions(
+              initialCenter: _currentPosition,
+              initialZoom: _zoom,
+              minZoom: 10,
+              maxZoom: 18,
+              onPositionChanged: (camera, hasGesture) {
+                if (hasGesture) {
+                  setState(() => _isFollowingGps = false);
+                }
+                _zoom = camera.zoom;
+              },
             ),
+            children: [
+              // Tile layer: Stadia Alidade Smooth Dark (miễn phí, không cần API key)
+              TileLayer(
+                urlTemplate:
+                    'https://tiles.stadiamaps.com/tiles/alidade_smooth_dark/{z}/{x}/{y}{r}.png',
+                userAgentPackageName: 'com.lhht.ai_assistant',
+                retinaMode: MediaQuery.of(context).devicePixelRatio > 1,
+              ),
+
+              // Marker vị trí xe hiện tại
+              MarkerLayer(
+                markers: [
+                  Marker(
+                    point: _currentPosition,
+                    width: 60,
+                    height: 60,
+                    child: _buildCarMarker(),
+                  ),
+                ],
+              ),
+
+              // Các POI markers
+              MarkerLayer(
+                markers: _buildPoiMarkerList(),
+              ),
+            ],
           ),
 
-          // 2. Lớp vẽ tuyến đường dẫn đường neon & mũi tên xe
-          IgnorePointer(
-            child: CustomPaint(
-              size: Size.infinite,
-              painter: _NavigationRoutePainter(
-                pulseValue: _pulseController.value,
-                panOffset: _panOffset,
-              ),
-            ),
-          ),
-
-          // 3. Các điểm tiện ích trên bản đồ (POIs: Kaufland, Lidl, Shell)
-          _buildPoiMarkers(),
-
-          // 4. Biển báo tốc độ kiểu Đức (StVO 50 km/h) & La bàn
+          // --- Biển báo tốc độ + tốc độ GPS thực ---
           Positioned(
             top: 14,
             left: 14,
-            child: _buildSpeedLimitAndCompass(),
+            child: _buildSpeedPanel(),
           ),
 
-          // 5. Thanh hiển thị tên đường hiện tại
+          // --- Thanh tên đường ---
           Positioned(
             top: 14,
             right: 70,
             child: _buildStreetNameBanner(),
           ),
 
-          // 6. Nút điều khiển bản đồ (+ / - / Vị trí / Mở Google Maps)
+          // --- Nút điều khiển bản đồ ---
           Positioned(
             bottom: 14,
             right: 14,
             child: _buildMapControls(),
           ),
+
+          // --- Cảnh báo GPS chưa được cấp phép ---
+          if (!_locationPermissionGranted)
+            Positioned(
+              bottom: 14,
+              left: 14,
+              child: _buildGpsWarning(),
+            ),
         ],
       ),
     );
   }
 
-  Widget _buildTileGrid() {
-    // Lưới 5x4 gạch bản đồ (mỗi ô 256x256 px)
-    const int cols = 5;
-    const int rows = 4;
-    final int startX = _centerTileX - (cols ~/ 2);
-    final int startY = _centerTileY - (rows ~/ 2);
-
-    return SizedBox(
-      width: cols * 256.0,
-      height: rows * 256.0,
-      child: Stack(
-        children: [
-          for (int r = 0; r < rows; r++)
-            for (int c = 0; c < cols; c++)
-              Positioned(
-                left: c * 256.0,
-                top: r * 256.0,
-                width: 256.0,
-                height: 256.0,
-                child: Image.network(
-                  'https://a.basemaps.cartocdn.com/dark_all/$_zoom/${startX + c}/${startY + r}.png',
-                  fit: BoxFit.cover,
-                  errorBuilder: (context, error, stackTrace) {
-                    return Container(
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF1E293B),
-                        border: Border.all(color: Colors.white12, width: 0.5),
-                      ),
-                      child: const Center(
-                        child: Icon(Icons.map_outlined, color: Colors.white24),
-                      ),
-                    );
-                  },
-                ),
-              ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildPoiMarkers() {
-    return Positioned.fill(
-      child: IgnorePointer(
-        ignoring: false,
-        child: Stack(
+  Widget _buildCarMarker() {
+    return AnimatedBuilder(
+      animation: _pulseController,
+      builder: (_, __) {
+        final pulseSize = 24.0 + 14.0 * _pulseController.value;
+        return Stack(
+          alignment: Alignment.center,
           children: [
-            // Kaufland POI
-            Positioned(
-              left: 280 + _panOffset.dx,
-              top: 120 + _panOffset.dy,
-              child: _buildPoiBadge(
-                name: 'Kaufland (1.8 km)',
-                icon: Icons.shopping_cart_rounded,
-                color: const Color(0xFFEF4444),
-                onTap: () {
-                  AutomotiveToolService.instance.openNavigation('Kaufland');
-                  widget.onSelectPoi?.call('Kaufland');
-                },
+            // Vòng radar phát sóng
+            Container(
+              width: pulseSize,
+              height: pulseSize,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: const Color(0xFF38BDF8)
+                    .withOpacity(0.3 * (1 - _pulseController.value)),
               ),
             ),
-
-            // Lidl POI
-            Positioned(
-              left: 120 + _panOffset.dx,
-              top: 220 + _panOffset.dy,
-              child: _buildPoiBadge(
-                name: 'Lidl Asia (1.2 km)',
-                icon: Icons.shopping_basket_rounded,
-                color: const Color(0xFFF59E0B),
-                onTap: () {
-                  AutomotiveToolService.instance.openNavigation('Lidl');
-                  widget.onSelectPoi?.call('Lidl');
-                },
+            // Chấm vị trí xe
+            Container(
+              width: 22,
+              height: 22,
+              decoration: const BoxDecoration(
+                shape: BoxShape.circle,
+                color: Color(0xFF0284C7),
               ),
             ),
-
-            // Shell Tankstelle POI
-            Positioned(
-              left: 360 + _panOffset.dx,
-              top: 240 + _panOffset.dy,
-              child: _buildPoiBadge(
-                name: 'Shell Cây xăng (800m)',
-                icon: Icons.local_gas_station_rounded,
-                color: const Color(0xFF10B981),
-                onTap: () {
-                  AutomotiveToolService.instance.openNavigation('Shell Tankstelle');
-                  widget.onSelectPoi?.call('Shell Tankstelle');
-                },
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildPoiBadge({
-    required String name,
-    required IconData icon,
-    required Color color,
-    required VoidCallback onTap,
-  }) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-        decoration: BoxDecoration(
-          color: const Color(0xFF0F172A).withOpacity(0.85),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: color, width: 1.5),
-          boxShadow: [
-            BoxShadow(
-              color: color.withOpacity(0.4),
-              blurRadius: 10,
-              spreadRadius: 1,
-            ),
-          ],
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, color: color, size: 16),
-            const SizedBox(width: 6),
-            Text(
-              name,
-              style: const TextStyle(
+            Container(
+              width: 10,
+              height: 10,
+              decoration: const BoxDecoration(
+                shape: BoxShape.circle,
                 color: Colors.white,
-                fontSize: 11.5,
-                fontWeight: FontWeight.bold,
               ),
             ),
           ],
-        ),
-      ),
+        );
+      },
     );
   }
 
-  Widget _buildSpeedLimitAndCompass() {
+  List<Marker> _buildPoiMarkerList() {
+    final pois = [
+      _PoiData(
+        position: const LatLng(52.3810, 9.7380),
+        name: 'Kaufland',
+        distanceText: '1.8 km',
+        icon: Icons.shopping_cart_rounded,
+        color: const Color(0xFFEF4444),
+      ),
+      _PoiData(
+        position: const LatLng(52.3700, 9.7450),
+        name: 'Lidl',
+        distanceText: '1.2 km',
+        icon: Icons.shopping_basket_rounded,
+        color: const Color(0xFFF59E0B),
+      ),
+      _PoiData(
+        position: const LatLng(52.3720, 9.7220),
+        name: 'Shell',
+        distanceText: '800 m',
+        icon: Icons.local_gas_station_rounded,
+        color: const Color(0xFF10B981),
+      ),
+    ];
+
+    return pois.map((poi) {
+      return Marker(
+        point: poi.position,
+        width: 150,
+        height: 44,
+        child: GestureDetector(
+          onTap: () {
+            AutomotiveToolService.instance.openNavigation(poi.name);
+            widget.onSelectPoi?.call(poi.name);
+          },
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+            decoration: BoxDecoration(
+              color: const Color(0xFF0F172A).withOpacity(0.9),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: poi.color, width: 1.5),
+              boxShadow: [
+                BoxShadow(
+                  color: poi.color.withOpacity(0.4),
+                  blurRadius: 8,
+                  spreadRadius: 1,
+                ),
+              ],
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(poi.icon, color: poi.color, size: 14),
+                const SizedBox(width: 5),
+                Flexible(
+                  child: Text(
+                    '${poi.name} • ${poi.distanceText}',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 10.5,
+                      fontWeight: FontWeight.bold,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }).toList();
+  }
+
+  Widget _buildSpeedPanel() {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        // Biển báo tốc độ 50 km/h của Đức (Vòng đỏ nền trắng)
+        // Biển giới hạn tốc độ 50 km/h kiểu Đức (StVO)
         Container(
-          width: 44,
-          height: 44,
+          width: 46,
+          height: 46,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
             color: Colors.white,
-            border: Border.all(color: const Color(0xFFDC2626), width: 4.5),
+            border: Border.all(color: const Color(0xFFDC2626), width: 5),
             boxShadow: [
               BoxShadow(
                 color: Colors.black.withOpacity(0.5),
@@ -293,7 +314,7 @@ class _AutomotiveMapViewState extends State<AutomotiveMapView>
               '50',
               style: TextStyle(
                 color: Colors.black,
-                fontSize: 18,
+                fontSize: 17,
                 fontWeight: FontWeight.w900,
                 letterSpacing: -0.5,
               ),
@@ -301,34 +322,26 @@ class _AutomotiveMapViewState extends State<AutomotiveMapView>
           ),
         ),
         const SizedBox(width: 10),
-        // Thẻ tốc độ & La bàn
+        // Tốc độ GPS thực
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
           decoration: BoxDecoration(
-            color: const Color(0xFF0F172A).withOpacity(0.8),
+            color: const Color(0xFF0F172A).withOpacity(0.85),
             borderRadius: BorderRadius.circular(14),
             border: Border.all(color: Colors.white12),
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
-            children: const [
-              Icon(Icons.navigation_rounded, color: Color(0xFF38BDF8), size: 16),
-              SizedBox(width: 6),
+            children: [
+              const Icon(Icons.speed_rounded,
+                  color: Color(0xFF38BDF8), size: 16),
+              const SizedBox(width: 6),
               Text(
-                '0 km/h',
-                style: TextStyle(
+                '${_currentSpeedKmh.toStringAsFixed(0)} km/h',
+                style: const TextStyle(
                   color: Colors.white,
                   fontSize: 14,
                   fontWeight: FontWeight.bold,
-                ),
-              ),
-              SizedBox(width: 8),
-              Text(
-                '• NW',
-                style: TextStyle(
-                  color: Colors.white70,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
                 ),
               ),
             ],
@@ -340,7 +353,7 @@ class _AutomotiveMapViewState extends State<AutomotiveMapView>
 
   Widget _buildStreetNameBanner() {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       decoration: BoxDecoration(
         color: const Color(0xFF0F172A).withOpacity(0.85),
         borderRadius: BorderRadius.circular(14),
@@ -349,13 +362,13 @@ class _AutomotiveMapViewState extends State<AutomotiveMapView>
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: const [
-          Icon(Icons.directions, color: Color(0xFF38BDF8), size: 16),
-          SizedBox(width: 8),
+          Icon(Icons.directions, color: Color(0xFF38BDF8), size: 15),
+          SizedBox(width: 6),
           Text(
-            'Hildesheimer Straße • Hannover',
+            'Hildesheimer Str. • Hannover',
             style: TextStyle(
               color: Colors.white,
-              fontSize: 12.5,
+              fontSize: 11.5,
               fontWeight: FontWeight.w600,
             ),
           ),
@@ -368,7 +381,7 @@ class _AutomotiveMapViewState extends State<AutomotiveMapView>
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        // Nút Mở Google Maps app ngoài
+        // Mở Google Maps ngoài
         GestureDetector(
           onTap: () {
             AutomotiveToolService.instance.openNavigation('');
@@ -388,36 +401,74 @@ class _AutomotiveMapViewState extends State<AutomotiveMapView>
                 ),
               ],
             ),
-            child: const Icon(Icons.launch_rounded, color: Colors.white, size: 20),
+            child: const Icon(Icons.launch_rounded,
+                color: Colors.white, size: 20),
           ),
         ),
 
-        // Nút Phóng to
         _buildCircleButton(
           icon: Icons.add,
-          onPressed: _zoomIn,
+          onPressed: () {
+            _zoom = (_zoom + 1).clamp(10, 18);
+            _mapController.move(_currentPosition, _zoom);
+          },
         ),
         const SizedBox(height: 6),
 
-        // Nút Thu nhỏ
         _buildCircleButton(
           icon: Icons.remove,
-          onPressed: _zoomOut,
+          onPressed: () {
+            _zoom = (_zoom - 1).clamp(10, 18);
+            _mapController.move(_currentPosition, _zoom);
+          },
         ),
         const SizedBox(height: 6),
 
-        // Nút Định vị về tâm
         _buildCircleButton(
-          icon: Icons.my_location_rounded,
-          onPressed: _resetCenter,
+          icon: _isFollowingGps
+              ? Icons.my_location_rounded
+              : Icons.location_searching_rounded,
+          color: _isFollowingGps ? const Color(0xFF38BDF8) : Colors.white,
+          onPressed: () {
+            setState(() => _isFollowingGps = true);
+            _mapController.move(_currentPosition, _zoom);
+          },
         ),
       ],
+    );
+  }
+
+  Widget _buildGpsWarning() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: const Color(0xFF92400E).withOpacity(0.9),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFF59E0B), width: 1),
+      ),
+      child: const Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.location_off_rounded,
+              color: Color(0xFFFBBF24), size: 14),
+          SizedBox(width: 6),
+          Text(
+            'GPS chưa được cấp phép',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 10.5,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
     );
   }
 
   Widget _buildCircleButton({
     required IconData icon,
     required VoidCallback onPressed,
+    Color color = Colors.white,
   }) {
     return GestureDetector(
       onTap: onPressed,
@@ -428,81 +479,25 @@ class _AutomotiveMapViewState extends State<AutomotiveMapView>
           shape: BoxShape.circle,
           border: Border.all(color: Colors.white24),
         ),
-        child: Icon(icon, color: Colors.white, size: 18),
+        child: Icon(icon, color: color, size: 18),
       ),
     );
   }
 }
 
-class _NavigationRoutePainter extends CustomPainter {
-  final double pulseValue;
-  final Offset panOffset;
+class _PoiData {
+  final LatLng position;
+  final String name;
+  final String distanceText;
+  final IconData icon;
+  final Color color;
 
-  _NavigationRoutePainter({
-    required this.pulseValue,
-    required this.panOffset,
+  const _PoiData({
+    required this.position,
+    required this.name,
+    required this.distanceText,
+    required this.icon,
+    required this.color,
   });
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final center = Offset(size.width * 0.45 + panOffset.dx, size.height * 0.55 + panOffset.dy);
-
-    // 1. Vẽ tuyến đường dẫn đường (Route line màu xanh ngọc phát sáng)
-    final routePaintGlow = Paint()
-      ..color = const Color(0xFF06B6D4).withOpacity(0.35)
-      ..strokeWidth = 14
-      ..style = PaintingStyle.stroke
-      ..strokeCap = StrokeCap.round;
-
-    final routePaint = Paint()
-      ..color = const Color(0xFF22D3EE)
-      ..strokeWidth = 6
-      ..style = PaintingStyle.stroke
-      ..strokeCap = StrokeCap.round;
-
-    final path = Path();
-    path.moveTo(center.dx, center.dy);
-    path.lineTo(center.dx + 40, center.dy - 80);
-    path.lineTo(center.dx + 120, center.dy - 130);
-    path.lineTo(center.dx + 220, center.dy - 170);
-
-    canvas.drawPath(path, routePaintGlow);
-    canvas.drawPath(path, routePaint);
-
-    // 2. Vòng radar phát sóng từ vị trí xe
-    final pulsePaint = Paint()
-      ..color = const Color(0xFF38BDF8).withOpacity(0.3 * (1 - pulseValue))
-      ..style = PaintingStyle.fill;
-    canvas.drawCircle(center, 24 + 18 * pulseValue, pulsePaint);
-
-    // 3. Vòng tròn vị trí xe
-    final puckPaint = Paint()
-      ..color = const Color(0xFF0284C7)
-      ..style = PaintingStyle.fill;
-    canvas.drawCircle(center, 12, puckPaint);
-
-    final innerPuck = Paint()
-      ..color = Colors.white
-      ..style = PaintingStyle.fill;
-    canvas.drawCircle(center, 5, innerPuck);
-
-    // 4. Mũi tên hướng xe (3D Navigation Arrow)
-    final arrowPaint = Paint()
-      ..color = Colors.white
-      ..style = PaintingStyle.fill;
-
-    final arrowPath = Path();
-    arrowPath.moveTo(center.dx, center.dy - 11);
-    arrowPath.lineTo(center.dx - 6, center.dy + 7);
-    arrowPath.lineTo(center.dx, center.dy + 3);
-    arrowPath.lineTo(center.dx + 6, center.dy + 7);
-    arrowPath.close();
-
-    canvas.drawPath(arrowPath, arrowPaint);
-  }
-
-  @override
-  bool shouldRepaint(covariant _NavigationRoutePainter oldDelegate) {
-    return oldDelegate.pulseValue != pulseValue || oldDelegate.panOffset != panOffset;
-  }
 }
+
