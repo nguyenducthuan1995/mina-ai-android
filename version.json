@@ -1,0 +1,8 @@
+{
+  "version": "2.0.0",
+  "version_code": 2,
+  "title": "Bản cập nhật Mina AI v2.0.0",
+  "changelog": "• Đàm thoại rảnh tay liên tục kiểu Lily AI trên xe ô tô\n• Thẻ Hero Bấm vào đây để kết nối ngay đầu trang\n• Chống dội âm (loại bỏ hiện tượng lặp tiếng AI)\n• Sửa lỗi âm thanh PCM và chống văng ứng dụng\n• Khóa cử chỉ vô tình thoát màn hình khi đang lái xe\n• Tích hợp tính năng cập nhật OTA trực tiếp trong ứng dụng",
+  "apk_url": "https://github.com/nguyenducthuan1995/mina-ai-android/releases/download/latest/MinaAI-debug.apk",
+  "force_update": false
+}

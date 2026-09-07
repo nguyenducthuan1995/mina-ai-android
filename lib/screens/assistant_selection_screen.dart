@@ -8,6 +8,7 @@ import 'package:ai_assistant/providers/conversation_provider.dart';
 import 'package:ai_assistant/providers/config_provider.dart';
 import 'package:ai_assistant/screens/chat_screen.dart';
 import 'package:ai_assistant/screens/voice_call_screen.dart';
+import 'package:ai_assistant/services/ota_service.dart';
 
 class AssistantSelectionScreen extends StatefulWidget {
   final bool isModal;
@@ -21,6 +22,17 @@ class AssistantSelectionScreen extends StatefulWidget {
 
 class _AssistantSelectionScreenState extends State<AssistantSelectionScreen> {
   String _selectedCategory = 'Tất cả';
+
+  @override
+  void initState() {
+    super.initState();
+    // Tự động kiểm tra bản cập nhật sau khi vào app 3 giây (chạy ngầm)
+    Future.delayed(const Duration(seconds: 3), () {
+      if (mounted) {
+        OtaService.instance.checkForUpdate(context, manual: false);
+      }
+    });
+  }
 
   final List<String> _categories = [
     'Tất cả',
@@ -67,6 +79,16 @@ class _AssistantSelectionScreenState extends State<AssistantSelectionScreen> {
             color: Color(0xFF1E293B),
           ),
         ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.system_update_rounded, color: Color(0xFF2563EB)),
+            tooltip: 'Cập nhật OTA',
+            onPressed: () {
+              OtaService.instance.checkForUpdate(context, manual: true);
+            },
+          ),
+          const SizedBox(width: 8),
+        ],
       ),
       body: Column(
         children: [

@@ -100,18 +100,24 @@ jobs:
           name: MinaAI-debug
           path: android-debug
 
-      - name: Get tag name
-        id: tag_name
-        run: echo "TAG_NAME=${GITHUB_REF#refs/tags/}" >> $GITHUB_ENV
+      - name: Determine tag name
+        id: tag_info
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            echo "TAG_NAME=${GITHUB_REF#refs/tags/}" >> $GITHUB_ENV
+            echo "RELEASE_NAME=Release ${GITHUB_REF#refs/tags/}" >> $GITHUB_ENV
+          else
+            echo "TAG_NAME=latest" >> $GITHUB_ENV
+            echo "RELEASE_NAME=Mina AI Latest Release" >> $GITHUB_ENV
+          fi
 
-      - name: Create Release
-        if: startsWith(github.ref, 'refs/tags/')
+      - name: Create or Update Release
         id: create_release
         uses: softprops/action-gh-release@v1
         with:
           token: ${{ github.token }}
           tag_name: ${{ env.TAG_NAME }}
-          name: Release ${{ env.TAG_NAME }}
+          name: ${{ env.RELEASE_NAME }}
           draft: false
           prerelease: false
           files: |
