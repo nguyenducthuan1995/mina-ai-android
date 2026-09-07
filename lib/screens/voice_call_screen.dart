@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'package:ai_assistant/models/conversation.dart';
 import 'package:ai_assistant/models/message.dart';
 import 'package:ai_assistant/models/xiaozhi_config.dart';
+import 'package:ai_assistant/models/assistant_persona.dart';
 import 'package:ai_assistant/providers/conversation_provider.dart';
 import 'package:ai_assistant/services/xiaozhi_service.dart';
 import 'dart:async';
@@ -67,6 +68,11 @@ class _VoiceCallScreenState extends State<VoiceCallScreen>
     );
 
     _xiaozhiService.setMessageListener(_handleServerMessage);
+
+    final persona = AssistantPersona.findById(widget.conversation.personaId);
+    if (persona != null) {
+      _currentSubtitle = persona.greetingMessage;
+    }
 
     _connectToVoiceService();
     _startAudioVisualizer();
@@ -413,19 +419,33 @@ class _VoiceCallScreenState extends State<VoiceCallScreen>
   }
 
   Widget _buildAvatar({required double size}) {
+    final persona =
+        widget.conversation.personaId.isNotEmpty
+            ? AssistantPersona.findById(widget.conversation.personaId)
+            : null;
+
+    final glowColor =
+        _isAiSpeaking
+            ? (persona?.iconColor ?? const Color(0xFF38BDF8))
+            : Colors.black;
+
     return Container(
       width: size,
       height: size,
       decoration: BoxDecoration(
         shape: BoxShape.circle,
-        gradient: const LinearGradient(
+        gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [Color(0xFF38BDF8), Color(0xFF6366F1), Color(0xFFEC4899)],
+          colors: [
+            persona?.iconColor ?? const Color(0xFF38BDF8),
+            const Color(0xFF6366F1),
+            const Color(0xFFEC4899),
+          ],
         ),
         boxShadow: [
           BoxShadow(
-            color: (_isAiSpeaking ? const Color(0xFF38BDF8) : Colors.black).withOpacity(0.4),
+            color: glowColor.withOpacity(0.4),
             blurRadius: _isAiSpeaking ? 25 : 12,
             spreadRadius: _isAiSpeaking ? 4 : 1,
           ),
@@ -436,8 +456,8 @@ class _VoiceCallScreenState extends State<VoiceCallScreen>
         child: CircleAvatar(
           backgroundColor: const Color(0xFF1E293B),
           child: Icon(
-            Icons.smart_toy_rounded,
-            color: const Color(0xFF38BDF8),
+            persona?.icon ?? Icons.smart_toy_rounded,
+            color: persona?.iconColor ?? const Color(0xFF38BDF8),
             size: size * 0.5,
           ),
         ),

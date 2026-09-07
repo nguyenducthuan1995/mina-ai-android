@@ -128,6 +128,7 @@ class ConversationProvider extends ChangeNotifier {
     required String title,
     required ConversationType type,
     String configId = '',
+    String personaId = '',
   }) async {
     final uuid = const Uuid();
     final conversationId = uuid.v4();
@@ -137,6 +138,7 @@ class ConversationProvider extends ChangeNotifier {
       title: title,
       type: type,
       configId: configId,
+      personaId: personaId,
       lastMessageTime: DateTime.now(),
       lastMessage: '',
       unreadCount: 0,

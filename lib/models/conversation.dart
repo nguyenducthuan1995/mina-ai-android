@@ -10,12 +10,14 @@ class Conversation {
   final String lastMessage;
   final int unreadCount;
   final bool isPinned;
+  final String personaId;
 
   Conversation({
     required this.id,
     required this.title,
     required this.type,
     this.configId = '',
+    this.personaId = '',
     required this.lastMessageTime,
     required this.lastMessage,
     this.unreadCount = 0,
@@ -28,6 +30,7 @@ class Conversation {
       title: json['title'],
       type: ConversationType.values.byName(json['type']),
       configId: json['configId'] ?? '',
+      personaId: json['personaId'] ?? '',
       lastMessageTime: DateTime.parse(json['lastMessageTime']),
       lastMessage: json['lastMessage'],
       unreadCount: json['unreadCount'] ?? 0,
@@ -41,6 +44,7 @@ class Conversation {
       'title': title,
       'type': type.name,
       'configId': configId,
+      'personaId': personaId,
       'lastMessageTime': lastMessageTime.toIso8601String(),
       'lastMessage': lastMessage,
       'unreadCount': unreadCount,
@@ -52,6 +56,7 @@ class Conversation {
     String? title,
     ConversationType? type,
     String? configId,
+    String? personaId,
     DateTime? lastMessageTime,
     String? lastMessage,
     int? unreadCount,
@@ -62,6 +67,7 @@ class Conversation {
       title: title ?? this.title,
       type: type ?? this.type,
       configId: configId ?? this.configId,
+      personaId: personaId ?? this.personaId,
       lastMessageTime: lastMessageTime ?? this.lastMessageTime,
       lastMessage: lastMessage ?? this.lastMessage,
       unreadCount: unreadCount ?? this.unreadCount,

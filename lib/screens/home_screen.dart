@@ -9,6 +9,7 @@ import 'package:ai_assistant/screens/conversation_type_screen.dart';
 import 'package:ai_assistant/widgets/conversation_tile.dart';
 import 'package:ai_assistant/widgets/slidable_delete_tile.dart';
 import 'package:ai_assistant/widgets/discovery_screen.dart';
+import 'package:ai_assistant/screens/assistant_selection_screen.dart';
 import 'package:flutter/rendering.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -60,6 +61,37 @@ class _HomeScreenState extends State<HomeScreen> {
                   titleSpacing: 20,
                   toolbarHeight: 65,
                   actions: [
+                    Padding(
+                      padding: const EdgeInsets.only(right: 8),
+                      child: Material(
+                        color: Colors.transparent,
+                        borderRadius: BorderRadius.circular(12),
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(12),
+                          splashColor: const Color(0xFF2563EB).withOpacity(0.1),
+                          onTap: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder:
+                                    (context) =>
+                                        const AssistantSelectionScreen(
+                                          isModal: true,
+                                        ),
+                              ),
+                            );
+                          },
+                          child: const Padding(
+                            padding: EdgeInsets.all(12),
+                            child: Icon(
+                              Icons.grid_view_rounded,
+                              size: 26,
+                              color: Color(0xFF2563EB),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
                     Padding(
                       padding: const EdgeInsets.only(right: 16),
                       child: Material(
@@ -134,7 +166,9 @@ class _HomeScreenState extends State<HomeScreen> {
                       Navigator.push(
                         context,
                         MaterialPageRoute(
-                          builder: (context) => const ConversationTypeScreen(),
+                          builder:
+                              (context) =>
+                                  const AssistantSelectionScreen(isModal: true),
                         ),
                       );
                     },
@@ -252,12 +286,12 @@ class _HomeScreenState extends State<HomeScreen> {
                           ),
                           child: Icon(
                             _selectedIndex == 1
-                                ? Icons.search
-                                : Icons.search_outlined,
+                                ? Icons.grid_view_rounded
+                                : Icons.grid_view_outlined,
                           ),
                         ),
                       ),
-                      label: 'Khám phá',
+                      label: 'Chọn trợ lý',
                     ),
                   ],
                 ),

@@ -4,6 +4,7 @@ import 'package:timeago/timeago.dart' as timeago;
 import 'package:ai_assistant/models/conversation.dart';
 import 'package:ai_assistant/models/xiaozhi_config.dart';
 import 'package:ai_assistant/models/dify_config.dart';
+import 'package:ai_assistant/models/assistant_persona.dart';
 import 'package:ai_assistant/providers/config_provider.dart';
 
 class ConversationTile extends StatelessWidget {
@@ -108,6 +109,27 @@ class ConversationTile extends StatelessWidget {
   }
 
   Widget _buildTypeTag(BuildContext context) {
+    if (conversation.personaId.isNotEmpty) {
+      final persona = AssistantPersona.findById(conversation.personaId);
+      if (persona != null) {
+        return Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+          decoration: BoxDecoration(
+            color: persona.iconBgColor,
+            borderRadius: BorderRadius.circular(6),
+          ),
+          child: Text(
+            persona.badgeText,
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              color: persona.iconColor,
+            ),
+          ),
+        );
+      }
+    }
+
     final bool isDify = conversation.type == ConversationType.dify;
     String label = isDify ? 'Văn bản' : 'Thoại';
 
@@ -156,6 +178,17 @@ class ConversationTile extends StatelessWidget {
   }
 
   Widget _buildAvatar() {
+    if (conversation.personaId.isNotEmpty) {
+      final persona = AssistantPersona.findById(conversation.personaId);
+      if (persona != null) {
+        return CircleAvatar(
+          radius: 24,
+          backgroundColor: persona.iconBgColor,
+          child: Icon(persona.icon, color: persona.iconColor, size: 24),
+        );
+      }
+    }
+
     if (conversation.type == ConversationType.dify) {
       return CircleAvatar(
         radius: 24,
