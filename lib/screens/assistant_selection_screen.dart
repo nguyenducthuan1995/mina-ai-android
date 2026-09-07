@@ -331,8 +331,8 @@ class _AssistantSelectionScreenState extends State<AssistantSelectionScreen> {
     // If not found, create one
     if (targetConv == null) {
       final configId =
-          configProvider.configs.isNotEmpty
-              ? configProvider.configs.first.id
+          configProvider.xiaozhiConfigs.isNotEmpty
+              ? configProvider.xiaozhiConfigs.first.id
               : 'default_mina_ai';
 
       targetConv = await conversationProvider.createConversation(
@@ -353,12 +353,12 @@ class _AssistantSelectionScreenState extends State<AssistantSelectionScreen> {
     if (!context.mounted) return;
 
     if (startVoiceCall) {
-      final effectiveConfig = configProvider.configs.firstWhere(
+      final effectiveConfig = configProvider.xiaozhiConfigs.firstWhere(
         (c) => c.id == targetConv!.configId,
         orElse:
             () =>
-                configProvider.configs.isNotEmpty
-                    ? configProvider.configs.first
+                configProvider.xiaozhiConfigs.isNotEmpty
+                    ? configProvider.xiaozhiConfigs.first
                     : XiaozhiConfig(
                       id: 'default_mina_ai',
                       name: 'Mina AI',
