@@ -55,35 +55,11 @@ class AudioUtil {
 
     print('$TAG: 开始初始化录音器');
 
-    // 更积极地请求所有可能需要的权限
-    if (Platform.isAndroid) {
-      print('$TAG: 请求Android所需的所有权限');
-      Map<Permission, PermissionStatus> statuses =
-          await [
-            Permission.microphone,
-            Permission.storage,
-            Permission.manageExternalStorage,
-            Permission.bluetooth,
-            Permission.bluetoothConnect,
-            Permission.bluetoothScan,
-          ].request();
-
-      print('$TAG: 权限状态:');
-      statuses.forEach((permission, status) {
-        print('$TAG: $permission: $status');
-      });
-
-      if (statuses[Permission.microphone] != PermissionStatus.granted) {
-        print('$TAG: 麦克风权限被拒绝');
-        throw Exception('需要麦克风权限');
-      }
-    } else {
-      // iOS/其他平台只请求麦克风权限
-      final status = await Permission.microphone.request();
-      if (status != PermissionStatus.granted) {
-        print('$TAG: 麦克风权限被拒绝');
-        throw Exception('需要麦克风权限');
-      }
+    // Chỉ yêu cầu quyền Microphone, không yêu cầu các quyền lưu trữ/bluetooth không cần thiết
+    final micStatus = await Permission.microphone.request();
+    if (micStatus != PermissionStatus.granted) {
+      print('$TAG: Quyền microphone bị từ chối');
+      throw Exception('Cần quyền microphone để thu âm');
     }
 
     // 检查是否可用

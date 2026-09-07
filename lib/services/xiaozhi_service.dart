@@ -53,12 +53,14 @@ class XiaozhiService {
   bool _isConnected = false;
   bool _isMuted = false;
   final List<XiaozhiServiceListener> _listeners = [];
-  StreamSubscription? _audioStreamSubscription;
   bool _isVoiceCallActive = false;
+  bool _isAiSpeaking = false;
   WebSocketChannel? _ws;
   bool _hasStartedCall = false;
   MessageListener? _messageListener;
   Completer<bool>? _connectCompleter;
+
+  bool get isAiSpeaking => _isAiSpeaking;
 
   /// 工厂构造函数，实现单例模式
   factory XiaozhiService({
@@ -451,10 +453,12 @@ class XiaozhiService {
       _webSocketManager?.sendMessage(jsonEncode(message));
       print('$TAG: 已发送开始监听消息 (语音通话模式)');
 
-      // 2. 设置音频流订阅
+      // 2. 设置音频流订阅 (Chống vọng tiếng: không gửi dữ liệu mic lên server khi AI đang nói hoặc tắt mic)
       await _audioStreamSubscription?.cancel();
       _audioStreamSubscription = AudioUtil.audioStream.listen((opusData) {
-        // 发送音频数据
+        if (_isAiSpeaking || _isMuted) {
+          return;
+        }
         _webSocketManager?.sendBinaryMessage(opusData);
       });
 
@@ -621,11 +625,31 @@ class XiaozhiService {
           final String state = jsonData['state'] ?? '';
           final String text = jsonData['text'] ?? '';
 
-          if (state == 'sentence_start' && text.isNotEmpty) {
+          if (state == 'start') {
+            _isAiSpeaking = true;
+          } else if (state == 'sentence_start' && text.isNotEmpty) {
+            _isAiSpeaking = true;
             print('$TAG: 收到TTS句子: $text');
             _dispatchEvent(
               XiaozhiServiceEvent(XiaozhiServiceEventType.textMessage, text),
             );
+          } else if (state == 'stop') {
+            _isAiSpeaking = false;
+            print('$TAG: TTS đã kết thúc, tự động kích hoạt lại lắng nghe (mode: auto)');
+            if (_isVoiceCallActive && _sessionId != null) {
+              Future.delayed(const Duration(milliseconds: 250), () {
+                if (_isConnected && !_isAiSpeaking && _isVoiceCallActive && _sessionId != null) {
+                  final listenMsg = {
+                    'session_id': _sessionId,
+                    'type': 'listen',
+                    'state': 'start',
+                    'mode': 'auto',
+                  };
+                  _webSocketManager?.sendMessage(jsonEncode(listenMsg));
+                  print('$TAG: Đã gửi lại listen start sau TTS stop');
+                }
+              });
+            }
           }
           break;
 
@@ -785,6 +809,8 @@ class XiaozhiService {
   /// 发送中断消息
   Future<void> sendAbortMessage() async {
     try {
+      _isAiSpeaking = false;
+      await AudioUtil.stopPlaying();
       if (_webSocketManager != null && _isConnected && _sessionId != null) {
         final abortMessage = {
           'session_id': _sessionId,
@@ -792,13 +818,18 @@ class XiaozhiService {
           'reason': 'wake_word_detected',
         };
         _webSocketManager?.sendMessage(jsonEncode(abortMessage));
-        print('$TAG: 发送中断消息: $abortMessage');
+        print('$TAG: 发送中断消息 (ngắt lời): $abortMessage');
 
-        // 如果当前正在录音，短暂停顿后继续
-        if (_isSpeaking) {
-          await stopListeningCall();
-          await Future.delayed(const Duration(milliseconds: 500));
-          await startListeningCall();
+        // Ngắt lời thành công, tiếp tục lắng nghe câu lệnh mới
+        if (_isVoiceCallActive) {
+          await Future.delayed(const Duration(milliseconds: 150));
+          final listenMessage = {
+            'session_id': _sessionId,
+            'type': 'listen',
+            'state': 'start',
+            'mode': 'auto',
+          };
+          _webSocketManager?.sendMessage(jsonEncode(listenMessage));
         }
       }
     } catch (e) {

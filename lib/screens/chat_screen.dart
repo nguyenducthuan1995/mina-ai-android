@@ -1313,23 +1313,27 @@ class _ChatScreenState extends State<ChatScreen> {
     });
   }
 
-  void _navigateToVoiceCall() {
+  void _navigateToVoiceCall() async {
     final configProvider = Provider.of<ConfigProvider>(context, listen: false);
     final xiaozhiConfig = configProvider.xiaozhiConfigs.firstWhere(
       (config) => config.id == widget.conversation.configId,
+      orElse: () => configProvider.xiaozhiConfigs.first,
     );
 
     // Tạm dừng timer check của ChatScreen
     _connectionCheckTimer?.cancel();
     _connectionCheckTimer = null;
 
-    // 导航前停止当前音频播放并断开连接，避免与VoiceCallScreen tranh chấp
+    // 导航前停止当前音频播放并 CHỜ ngắt kết nối hoàn toàn để tránh tranh chấp kết nối
     if (_xiaozhiService != null) {
-      _xiaozhiService!.stopPlayback();
-      _xiaozhiService!.disconnect();
+      await _xiaozhiService!.stopPlayback();
+      await _xiaozhiService!.disconnect();
+      _xiaozhiService = null;
     }
 
-    Navigator.push(
+    if (!mounted) return;
+
+    await Navigator.push(
       context,
       MaterialPageRoute(
         builder:
@@ -1338,13 +1342,13 @@ class _ChatScreenState extends State<ChatScreen> {
               xiaozhiConfig: xiaozhiConfig,
             ),
       ),
-    ).then((_) {
-      // 页面返回后，确保重新初始化服务以恢复正常对话功能
-      if (mounted && widget.conversation.type == ConversationType.xiaozhi) {
-        _initXiaozhiService();
-        _startConnectionTimer();
-      }
-    });
+    );
+
+    // 页面返回后，确保重新初始化服务以恢复正常对话功能
+    if (mounted && widget.conversation.type == ConversationType.xiaozhi) {
+      _initXiaozhiService();
+      _startConnectionTimer();
+    }
   }
 
   // 启动波形动画

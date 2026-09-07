@@ -35,6 +35,7 @@ class _VoiceCallScreenState extends State<VoiceCallScreen>
   Timer? _callTimer;
   Duration _callDuration = Duration.zero;
   bool _serverReady = false;
+  bool _isManualExit = false;
 
   late AnimationController _animationController;
   final List<double> _audioLevels = List.filled(24, 0.08);
@@ -67,6 +68,7 @@ class _VoiceCallScreenState extends State<VoiceCallScreen>
     );
 
     _xiaozhiService.setMessageListener(_handleServerMessage);
+    _xiaozhiService.addListener(_handleServiceEvent);
 
     final persona = AssistantPersona.findById(widget.conversation.personaId);
     if (persona != null) {
@@ -75,6 +77,32 @@ class _VoiceCallScreenState extends State<VoiceCallScreen>
 
     _connectToVoiceService();
     _startAudioVisualizer();
+  }
+
+  void _handleServiceEvent(XiaozhiServiceEvent event) {
+    if (!mounted) return;
+    if (event.type == XiaozhiServiceEventType.disconnected) {
+      print('VoiceCall: Nhận sự kiện mất kết nối');
+      if (!_isManualExit) {
+        setState(() {
+          _isConnected = false;
+          _isSpeaking = false;
+          _isAiSpeaking = false;
+          _statusText = 'Mất kết nối • Đang thử lại...';
+        });
+
+        // Tự động thử kết nối lại sau 2 giây
+        Future.delayed(const Duration(milliseconds: 2000), () {
+          if (mounted && !_isConnected && !_isManualExit) {
+            _connectToVoiceService();
+          }
+        });
+      }
+    } else if (event.type == XiaozhiServiceEventType.connected) {
+      setState(() {
+        _isConnected = true;
+      });
+    }
   }
 
   void _handleServerMessage(dynamic message) {
@@ -87,7 +115,7 @@ class _VoiceCallScreenState extends State<VoiceCallScreen>
         setState(() {
           _serverReady = true;
           _isConnected = true;
-          _statusText = 'Đã kết nối';
+          _statusText = 'Đang lắng nghe...';
         });
 
         Future.delayed(const Duration(milliseconds: 500), () {
@@ -138,9 +166,12 @@ class _VoiceCallScreenState extends State<VoiceCallScreen>
 
   @override
   void dispose() {
+    _isManualExit = true;
     _callTimer?.cancel();
     _audioVisualizerTimer?.cancel();
     _animationController.dispose();
+    _xiaozhiService.removeListener(_handleServiceEvent);
+    _xiaozhiService.setMessageListener(null);
     _xiaozhiService.disconnectVoiceCall();
     super.dispose();
   }
@@ -318,7 +349,9 @@ class _VoiceCallScreenState extends State<VoiceCallScreen>
           child: IconButton(
             icon: const Icon(Icons.arrow_back, color: Colors.white, size: 24),
             onPressed: () {
+              _isManualExit = true;
               _xiaozhiService.stopPlayback();
+              _xiaozhiService.disconnectVoiceCall();
               Navigator.pop(context);
             },
           ),
@@ -449,38 +482,49 @@ class _VoiceCallScreenState extends State<VoiceCallScreen>
     final glowColor =
         _isAiSpeaking
             ? (persona?.iconColor ?? const Color(0xFF38BDF8))
-            : Colors.black;
+            : (_isConnected ? const Color(0xFF10B981) : Colors.redAccent);
 
-    return Container(
-      width: size,
-      height: size,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            persona?.iconColor ?? const Color(0xFF38BDF8),
-            const Color(0xFF6366F1),
-            const Color(0xFFEC4899),
+    return GestureDetector(
+      onTap: () {
+        if (!_isConnected) {
+          _connectToVoiceService();
+        } else if (_isAiSpeaking) {
+          _sendAbortMessage();
+        } else if (!_isSpeaking) {
+          _startSpeaking();
+        }
+      },
+      child: Container(
+        width: size,
+        height: size,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              persona?.iconColor ?? const Color(0xFF38BDF8),
+              const Color(0xFF6366F1),
+              const Color(0xFFEC4899),
+            ],
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: glowColor.withOpacity(0.4),
+              blurRadius: _isAiSpeaking ? 25 : 14,
+              spreadRadius: _isAiSpeaking ? 4 : 2,
+            ),
           ],
         ),
-        boxShadow: [
-          BoxShadow(
-            color: glowColor.withOpacity(0.4),
-            blurRadius: _isAiSpeaking ? 25 : 12,
-            spreadRadius: _isAiSpeaking ? 4 : 1,
-          ),
-        ],
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(4),
-        child: CircleAvatar(
-          backgroundColor: const Color(0xFF1E293B),
-          child: Icon(
-            persona?.icon ?? Icons.smart_toy_rounded,
-            color: persona?.iconColor ?? const Color(0xFF38BDF8),
-            size: size * 0.5,
+        child: Padding(
+          padding: const EdgeInsets.all(4),
+          child: CircleAvatar(
+            backgroundColor: const Color(0xFF1E293B),
+            child: Icon(
+              persona?.icon ?? Icons.smart_toy_rounded,
+              color: persona?.iconColor ?? const Color(0xFF38BDF8),
+              size: size * 0.5,
+            ),
           ),
         ),
       ),
@@ -489,46 +533,70 @@ class _VoiceCallScreenState extends State<VoiceCallScreen>
 
   Widget _buildStatusBadge() {
     final isWorking = _isConnected;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-      decoration: BoxDecoration(
-        color: isWorking ? const Color(0xFF10B981).withOpacity(0.2) : Colors.red.withOpacity(0.2),
+    final text = _isAiSpeaking
+        ? 'Mina AI đang nói... (Chạm để ngắt lời)'
+        : (_isSpeaking
+            ? 'Đang lắng nghe liên tục...'
+            : (_isConnected ? 'Sẵn sàng • Chạm để nói' : _statusText));
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(
-          color: isWorking ? Colors.greenAccent.withOpacity(0.5) : Colors.redAccent.withOpacity(0.5),
-          width: 1,
-        ),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 8,
-            height: 8,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: isWorking ? Colors.greenAccent : Colors.redAccent,
-              boxShadow: [
-                BoxShadow(
-                  color: (isWorking ? Colors.greenAccent : Colors.redAccent).withOpacity(0.6),
-                  blurRadius: 6,
-                  spreadRadius: 2,
+        onTap: () {
+          if (!_isConnected) {
+            _connectToVoiceService();
+          } else if (_isAiSpeaking) {
+            _sendAbortMessage();
+          } else if (!_isSpeaking) {
+            _startSpeaking();
+          }
+        },
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+          decoration: BoxDecoration(
+            color: isWorking
+                ? const Color(0xFF10B981).withOpacity(0.2)
+                : Colors.red.withOpacity(0.25),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(
+              color: isWorking
+                  ? Colors.greenAccent.withOpacity(0.5)
+                  : Colors.redAccent.withOpacity(0.6),
+              width: 1.2,
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 8,
+                height: 8,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: isWorking ? Colors.greenAccent : Colors.redAccent,
+                  boxShadow: [
+                    BoxShadow(
+                      color: (isWorking ? Colors.greenAccent : Colors.redAccent)
+                          .withOpacity(0.6),
+                      blurRadius: 6,
+                      spreadRadius: 2,
+                    ),
+                  ],
                 ),
-              ],
-            ),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                text,
+                style: TextStyle(
+                  color: isWorking ? Colors.greenAccent : Colors.redAccent,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
           ),
-          const SizedBox(width: 8),
-          Text(
-            _isAiSpeaking
-                ? 'Mina AI đang nói...'
-                : (_isSpeaking ? 'Đang nghe bạn...' : _statusText),
-            style: TextStyle(
-              color: isWorking ? Colors.greenAccent : Colors.redAccent,
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }
@@ -606,11 +674,41 @@ class _VoiceCallScreenState extends State<VoiceCallScreen>
           label: 'Kết thúc',
           size: 54,
           onPressed: () async {
+            _isManualExit = true;
             await _xiaozhiService.sendAbortMessage();
             if (mounted) Navigator.pop(context);
           },
         ),
-        const SizedBox(width: 32),
+        const SizedBox(width: 28),
+        if (!_isConnected)
+          _buildActionButton(
+            icon: Icons.refresh_rounded,
+            color: Colors.white,
+            backgroundColor: const Color(0xFF10B981),
+            label: 'Kết nối lại',
+            size: 58,
+            onPressed: _connectToVoiceService,
+          )
+        else
+          _buildActionButton(
+            icon: _isSpeaking ? Icons.mic_rounded : Icons.mic_off_rounded,
+            color: Colors.white,
+            backgroundColor: _isSpeaking ? const Color(0xFF10B981) : const Color(0xFF64748B),
+            label: _isSpeaking ? 'Đang nghe' : 'Tạm dừng',
+            size: 58,
+            onPressed: () {
+              if (_isSpeaking) {
+                _xiaozhiService.stopListeningCall();
+                setState(() {
+                  _isSpeaking = false;
+                  _statusText = 'Tạm dừng (Chạm để nghe)';
+                });
+              } else {
+                _startSpeaking();
+              }
+            },
+          ),
+        const SizedBox(width: 28),
         _buildActionButton(
           icon: Icons.pan_tool_rounded,
           color: Colors.white,
