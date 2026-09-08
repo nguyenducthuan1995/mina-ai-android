@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path_provider/path_provider.dart';
 
 class UpdateInfo {
@@ -50,8 +51,11 @@ class OtaService {
   OtaService._();
   static final OtaService instance = OtaService._();
 
-  static const String currentVersion = '2.0.5';
-  static const int currentBuildNumber = 7;
+  // Version đọc động từ package_info_plus — KHÔNG còn hardcode nữa
+  // Điều này ngăn OTA loop: sau khi cài bản mới, app đọc đúng version mới
+  String _currentVersion = '0.0.0';
+  int _currentBuildNumber = 0;
+  bool _versionLoaded = false;
 
   static const MethodChannel _channel = MethodChannel('com.lhht.ai_assistant/ota');
 
@@ -63,6 +67,24 @@ class OtaService {
 
   bool _isChecking = false;
   bool get isChecking => _isChecking;
+
+  /// Đọc version thực tế từ APK đang cài (package_info_plus)
+  Future<void> _loadCurrentVersion() async {
+    if (_versionLoaded) return;
+    try {
+      final info = await PackageInfo.fromPlatform();
+      _currentVersion = info.version; // e.g. "2.0.6"
+      _currentBuildNumber = int.tryParse(info.buildNumber) ?? 0; // e.g. 8
+      _versionLoaded = true;
+      debugPrint('OTA: currentVersion=$_currentVersion build=$_currentBuildNumber');
+    } catch (e) {
+      debugPrint('OTA: Không đọc được package info: $e');
+      // Fallback về version hardcode để không crash
+      _currentVersion = '2.0.6';
+      _currentBuildNumber = 8;
+      _versionLoaded = true;
+    }
+  }
 
   /// So sánh hai chuỗi phiên bản dạng semver x.y.z
   /// Trả về 1 nếu v1 > v2, -1 nếu v1 < v2, 0 nếu bằng nhau
@@ -86,6 +108,7 @@ class OtaService {
   Future<UpdateInfo?> checkUpdate() async {
     try {
       _isChecking = true;
+      await _loadCurrentVersion(); // Đọc version thực từ APK
 
       // 1. Thử lấy từ version.json trên GitHub raw
       try {
@@ -93,8 +116,8 @@ class OtaService {
         if (res.statusCode == 200) {
           final data = json.decode(utf8.decode(res.bodyBytes));
           final info = UpdateInfo.fromJson(data);
-          if (info.versionCode > currentBuildNumber ||
-              compareVersions(info.versionName, currentVersion) > 0) {
+          if (info.versionCode > _currentBuildNumber ||
+              compareVersions(info.versionName, _currentVersion) > 0) {
             return info;
           }
           return null;
@@ -122,10 +145,10 @@ class OtaService {
             }
           }
 
-          if (compareVersions(tagName, currentVersion) > 0 && apkUrl.isNotEmpty) {
+          if (compareVersions(tagName, _currentVersion) > 0 && apkUrl.isNotEmpty) {
             return UpdateInfo(
               versionName: tagName,
-              versionCode: currentBuildNumber + 1,
+              versionCode: _currentBuildNumber + 1,
               title: data['name'] ?? 'Bản cập nhật mới $tagName',
               changelog: data['body'] ?? 'Bản cập nhật mới từ hệ thống.',
               apkUrl: apkUrl,
@@ -176,7 +199,7 @@ class OtaService {
             children: [
               const Icon(Icons.check_circle, color: Colors.greenAccent),
               const SizedBox(width: 8),
-              Text('Bạn đang sử dụng bản mới nhất (v$currentVersion)'),
+              Text('Bạn đang sử dụng bản mới nhất (v$_currentVersion)'),
             ],
           ),
           backgroundColor: const Color(0xFF1E293B),
