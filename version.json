@@ -1,8 +1,8 @@
 {
-  "version": "2.0.7",
-  "version_code": 9,
-  "title": "Mina AI v2.0.7 — DeepL Dịch Thuật + Bản Đồ Đêm + STT Cải Thiện",
-  "changelog": "• MỚI: Mina Phiên Dịch — dịch Việt↔Đức chuyên nghiệp bằng DeepL AI\n• MỚI: Hỗ trợ phong cách Du (thân mật) / Sie (trang trọng)\n• Bản đồ đêm tràn viền giống Lily AI (TomTom Night Mode)\n• Cải thiện nhận diện giọng nói: gom câu 2.2s tránh ngắt giữa chừng\n• Fix ngắt lời không xóa câu cũ\n• Fix nuốt chữ lặp khi nói câu dài\n• Hỗ trợ 7 ngôn ngữ dịch: Việt, Đức, Anh, Pháp, Trung, Nhật, Hàn",
+  "version": "2.0.8",
+  "version_code": 10,
+  "title": "Mina AI v2.0.8 — Fix AI Phản Hồi + Bản Đồ Sạch",
+  "changelog": "• Fix AI không phản hồi sau khi nhận diện giọng nói\n• Bản đồ sạch sẽ: traffic chỉ hiện đường tắc thực sự (bỏ cam/đỏ phủ kín)\n• DeepL dịch thuật Việt↔Đức (Mina Phiên Dịch)\n• Cải thiện STT gom câu dài\n• Hỗ trợ Du/Sie trong dịch tiếng Đức",
   "apk_url": "https://github.com/nguyenducthuan1995/mina-ai-android/releases/latest/download/MinaAI-debug.apk",
   "force_update": false
 }
