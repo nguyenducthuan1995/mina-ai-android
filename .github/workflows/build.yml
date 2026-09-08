@@ -78,8 +78,8 @@ jobs:
       - name: Create API Keys Config
         env:
           TOMTOM_KEY: ${{ secrets.TOMTOM_API_KEY }}
+          DEEPSEEK_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           DEEPL_KEY: ${{ secrets.DEEPL_API_KEY }}
-          HERE_KEY: ${{ secrets.HERE_API_KEY }}
           GEMINI_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
           mkdir -p lib/config
@@ -88,8 +88,8 @@ jobs:
             echo "class ApiKeys {"
             echo "  ApiKeys._();"
             echo "  static const String tomtom = '${TOMTOM_KEY}';"
+            echo "  static const String deepseek = '${DEEPSEEK_KEY}';"
             echo "  static const String deepl = '${DEEPL_KEY}';"
-            echo "  static const String here = '${HERE_KEY}';"
             echo "  static const String gemini = '${GEMINI_KEY}';"
             echo "}"
           } > lib/config/api_keys.dart
