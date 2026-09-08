@@ -1,8 +1,8 @@
 {
-  "version": "2.0.5",
-  "version_code": 7,
-  "title": "Mina AI v2.0.5 — Sửa lỗi kết nối & GPS ổn định",
-  "changelog": "• Sửa lỗi mất kết nối khi mở màn hình Lái xe (do GPS dialog xuất hiện quá sớm)\n• GPS xin quyền sau 3 giây để không ảnh hưởng kết nối server\n• Bản đồ dark Stadia Maps không cần API key (fix từ v2.0.4)\n• Tốc độ GPS thực (km/h) cập nhật theo xe",
+  "version": "2.0.6",
+  "version_code": 8,
+  "title": "Mina AI v2.0.6 — Bản đồ TomTom + AI tiếng Việt",
+  "changelog": "• Bản đồ TomTom chất lượng cao (thay Stadia Maps bị lỗi)\n• Lớp traffic thời gian thực: xanh/vàng/đỏ theo tình trạng giao thông\n• AI luôn trả lời đúng ngôn ngữ người hỏi (Việt/Đức/Anh)\n• GPS delay tăng 5s giúp kết nối ổn định hơn\n• Hỗ trợ TomTom API key cho tính năng bản đồ cao cấp",
   "apk_url": "https://github.com/nguyenducthuan1995/mina-ai-android/releases/latest/download/MinaAI-debug.apk",
   "force_update": false
 }
