@@ -134,19 +134,19 @@ class _AutomotiveMapViewState extends State<AutomotiveMapView>
                     'https://api.tomtom.com/map/1/tile/basic/main/{z}/{x}/{y}.png'
                     '?key=${ApiKeys.tomtom}&language=de&tileSize=256',
                 userAgentPackageName: 'com.lhht.ai_assistant',
-                retinaMode: MediaQuery.of(context).devicePixelRatio > 1,
-                // Dùng OSM làm fallback nếu TomTom bị giới hạn
-                fallbackUrl: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
               ),
 
-              // Layer 2: TomTom Traffic Flow overlay — tình trạng tắc đường thời gian thực
-              // Màu xanh = thông thoáng, vàng = chậm, đỏ = tắc đường
-              TileLayer(
-                urlTemplate:
-                    'https://api.tomtom.com/traffic/map/4/tile/flow/absolute/{z}/{x}/{y}.png'
-                    '?key=${ApiKeys.tomtom}&tileSize=256',
-                userAgentPackageName: 'com.lhht.ai_assistant',
-                opacity: 0.7, // trong suốt để thấy bản đồ phía dưới
+              // Layer 2: TomTom Traffic Flow overlay — tình trạng tắc đường thực tế
+              // Xanh = thông thoáng, vàng = chậm, đỏ = tắc đường
+              // Dùng Opacity widget thay vì opacity param (không có trong flutter_map v7)
+              Opacity(
+                opacity: 0.7,
+                child: TileLayer(
+                  urlTemplate:
+                      'https://api.tomtom.com/traffic/map/4/tile/flow/absolute/{z}/{x}/{y}.png'
+                      '?key=${ApiKeys.tomtom}&tileSize=256',
+                  userAgentPackageName: 'com.lhht.ai_assistant',
+                ),
               ),
 
               // Marker vị trí xe hiện tại
