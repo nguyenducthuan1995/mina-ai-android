@@ -54,7 +54,6 @@ dependencies:
   flutter_sound: ^9.26.0
   permission_handler: ^11.4.0
   path_provider: ^2.1.5
-  package_info_plus: ^8.0.0
   just_audio: ^0.9.36
   audio_session: ^0.1.18
   flutter_pcm_player: ^0.0.1

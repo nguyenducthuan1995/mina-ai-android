@@ -3,7 +3,6 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
-import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path_provider/path_provider.dart';
 
 class UpdateInfo {
@@ -28,7 +27,8 @@ class UpdateInfo {
       versionName: json['version'] ?? json['tag_name'] ?? '2.0.1',
       versionCode: json['version_code'] ?? 3,
       title: json['title'] ?? 'Bản cập nhật mới',
-      changelog: json['changelog'] ?? json['body'] ?? 'Cải thiện hiệu năng và sửa lỗi đàm thoại.',
+      changelog:
+          json['changelog'] ?? json['body'] ?? 'Cải thiện hiệu năng và sửa lỗi đàm thoại.',
       apkUrl: json['apk_url'] ?? '',
       forceUpdate: json['force_update'] ?? false,
     );
@@ -51,15 +51,14 @@ class OtaService {
   OtaService._();
   static final OtaService instance = OtaService._();
 
-  // Version đọc động từ package_info_plus — KHÔNG còn hardcode nữa
-  // Điều này ngăn OTA loop: sau khi cài bản mới, app đọc đúng version mới
-  String _currentVersion = '0.0.0';
-  int _currentBuildNumber = 0;
-  bool _versionLoaded = false;
+  // ⚠️ CI TỰ ĐỘNG cập nhật 2 dòng này từ pubspec.yaml trước mỗi build (xem build.yml)
+  // KHÔNG sửa tay — constants này phải khớp với version trong pubspec.yaml
+  static const String currentVersion = '2.0.6'; // CI_VERSION_PLACEHOLDER
+  static const int currentBuildNumber = 8; // CI_BUILD_PLACEHOLDER
 
   static const MethodChannel _channel = MethodChannel('com.lhht.ai_assistant/ota');
 
-  // URL kiểm tra phiên bản (ưu tiên raw file trên GitHub, không bị rate-limit)
+  // Lấy version.json từ GitHub raw (không bị rate-limit, cập nhật ngay sau push)
   static const String _versionUrl =
       'https://raw.githubusercontent.com/nguyenducthuan1995/mina-ai-android/main/version.json';
   static const String _githubLatestReleaseUrl =
@@ -68,33 +67,13 @@ class OtaService {
   bool _isChecking = false;
   bool get isChecking => _isChecking;
 
-  /// Đọc version thực tế từ APK đang cài (package_info_plus)
-  Future<void> _loadCurrentVersion() async {
-    if (_versionLoaded) return;
-    try {
-      final info = await PackageInfo.fromPlatform();
-      _currentVersion = info.version; // e.g. "2.0.6"
-      _currentBuildNumber = int.tryParse(info.buildNumber) ?? 0; // e.g. 8
-      _versionLoaded = true;
-      debugPrint('OTA: currentVersion=$_currentVersion build=$_currentBuildNumber');
-    } catch (e) {
-      debugPrint('OTA: Không đọc được package info: $e');
-      // Fallback về version hardcode để không crash
-      _currentVersion = '2.0.6';
-      _currentBuildNumber = 8;
-      _versionLoaded = true;
-    }
-  }
-
   /// So sánh hai chuỗi phiên bản dạng semver x.y.z
   /// Trả về 1 nếu v1 > v2, -1 nếu v1 < v2, 0 nếu bằng nhau
   int compareVersions(String v1, String v2) {
     final clean1 = v1.replaceAll(RegExp(r'^[vV]'), '').split('+')[0];
     final clean2 = v2.replaceAll(RegExp(r'^[vV]'), '').split('+')[0];
-
     final parts1 = clean1.split('.').map((e) => int.tryParse(e) ?? 0).toList();
     final parts2 = clean2.split('.').map((e) => int.tryParse(e) ?? 0).toList();
-
     for (int i = 0; i < 3; i++) {
       final p1 = i < parts1.length ? parts1[i] : 0;
       final p2 = i < parts2.length ? parts2[i] : 0;
@@ -108,47 +87,47 @@ class OtaService {
   Future<UpdateInfo?> checkUpdate() async {
     try {
       _isChecking = true;
-      await _loadCurrentVersion(); // Đọc version thực từ APK
 
       // 1. Thử lấy từ version.json trên GitHub raw
       try {
-        final res = await http.get(Uri.parse(_versionUrl)).timeout(const Duration(seconds: 5));
+        final res =
+            await http.get(Uri.parse(_versionUrl)).timeout(const Duration(seconds: 5));
         if (res.statusCode == 200) {
           final data = json.decode(utf8.decode(res.bodyBytes));
           final info = UpdateInfo.fromJson(data);
-          if (info.versionCode > _currentBuildNumber ||
-              compareVersions(info.versionName, _currentVersion) > 0) {
+          debugPrint(
+              'OTA: remote=${info.versionName}(${info.versionCode}) current=$currentVersion($currentBuildNumber)');
+          if (info.versionCode > currentBuildNumber ||
+              compareVersions(info.versionName, currentVersion) > 0) {
             return info;
           }
-          return null;
+          return null; // Đã là bản mới nhất
         }
       } catch (e) {
         debugPrint('Lỗi đọc version.json: $e');
       }
 
-      // 2. Dự phòng: Thử lấy từ GitHub Releases API
+      // 2. Dự phòng: GitHub Releases API
       try {
         final res = await http
-            .get(Uri.parse(_githubLatestReleaseUrl), headers: {'Accept': 'application/vnd.github.v3+json'})
+            .get(Uri.parse(_githubLatestReleaseUrl),
+                headers: {'Accept': 'application/vnd.github.v3+json'})
             .timeout(const Duration(seconds: 5));
-
         if (res.statusCode == 200) {
           final data = json.decode(utf8.decode(res.bodyBytes));
           final tagName = data['tag_name'] as String? ?? '';
           final assets = (data['assets'] as List?) ?? [];
           String apkUrl = '';
           for (final asset in assets) {
-            final name = asset['name'] as String? ?? '';
-            if (name.endsWith('.apk')) {
+            if ((asset['name'] as String? ?? '').endsWith('.apk')) {
               apkUrl = asset['browser_download_url'] ?? '';
               break;
             }
           }
-
-          if (compareVersions(tagName, _currentVersion) > 0 && apkUrl.isNotEmpty) {
+          if (compareVersions(tagName, currentVersion) > 0 && apkUrl.isNotEmpty) {
             return UpdateInfo(
               versionName: tagName,
-              versionCode: _currentBuildNumber + 1,
+              versionCode: currentBuildNumber + 1,
               title: data['name'] ?? 'Bản cập nhật mới $tagName',
               changelog: data['body'] ?? 'Bản cập nhật mới từ hệ thống.',
               apkUrl: apkUrl,
@@ -199,7 +178,7 @@ class OtaService {
             children: [
               const Icon(Icons.check_circle, color: Colors.greenAccent),
               const SizedBox(width: 8),
-              Text('Bạn đang sử dụng bản mới nhất (v$_currentVersion)'),
+              Text('Bạn đang sử dụng bản mới nhất (v$currentVersion)'),
             ],
           ),
           backgroundColor: const Color(0xFF1E293B),
@@ -245,10 +224,7 @@ class OtaService {
                     const SizedBox(height: 4),
                     Text(
                       'Phiên bản: ${update.versionName}',
-                      style: const TextStyle(
-                        color: Colors.white70,
-                        fontSize: 13,
-                      ),
+                      style: const TextStyle(color: Colors.white70, fontSize: 13),
                     ),
                   ],
                 ),
@@ -276,7 +252,8 @@ class OtaService {
               child: SingleChildScrollView(
                 child: Text(
                   update.changelog,
-                  style: const TextStyle(fontSize: 13, height: 1.4, color: Color(0xFF334155)),
+                  style: const TextStyle(
+                      fontSize: 13, height: 1.4, color: Color(0xFF334155)),
                 ),
               ),
             ),
@@ -319,7 +296,6 @@ class OtaService {
     );
     bool isCancelled = false;
 
-    // Hiển thị Dialog tiến trình tải sử dụng ValueNotifier
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -329,7 +305,8 @@ class OtaService {
           children: [
             Icon(Icons.cloud_download_rounded, color: Color(0xFF2563EB)),
             SizedBox(width: 10),
-            Text('Đang tải bản cập nhật...', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+            Text('Đang tải bản cập nhật...',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
           ],
         ),
         content: ValueListenableBuilder<DownloadProgress>(
@@ -345,7 +322,8 @@ class OtaService {
                     value: data.total > 0 ? data.progress : null,
                     minHeight: 10,
                     backgroundColor: Colors.grey.shade200,
-                    valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF2563EB)),
+                    valueColor:
+                        const AlwaysStoppedAnimation<Color>(Color(0xFF2563EB)),
                   ),
                 ),
                 const SizedBox(height: 12),
@@ -359,8 +337,13 @@ class OtaService {
                       style: const TextStyle(fontSize: 12, color: Colors.grey),
                     ),
                     Text(
-                      data.total > 0 ? '${(data.progress * 100).toStringAsFixed(0)}%' : '',
-                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF2563EB)),
+                      data.total > 0
+                          ? '${(data.progress * 100).toStringAsFixed(0)}%'
+                          : '',
+                      style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF2563EB)),
                     ),
                   ],
                 ),
@@ -396,12 +379,11 @@ class OtaService {
 
       final totalBytes = response.contentLength ?? 0;
       final tempDir = await getTemporaryDirectory();
-      final sanitizedVersion = update.versionName.replaceAll(RegExp(r'[^a-zA-Z0-9._-]'), '_');
+      final sanitizedVersion =
+          update.versionName.replaceAll(RegExp(r'[^a-zA-Z0-9._-]'), '_');
       final apkFile = File('${tempDir.path}/mina_update_$sanitizedVersion.apk');
 
-      if (await apkFile.exists()) {
-        await apkFile.delete();
-      }
+      if (await apkFile.exists()) await apkFile.delete();
 
       final sink = apkFile.openWrite();
       int receivedBytes = 0;
@@ -413,39 +395,33 @@ class OtaService {
           if (await apkFile.exists()) await apkFile.delete();
           return;
         }
-
         sink.add(chunk);
         receivedBytes += chunk.length;
-
         final now = DateTime.now();
-        if (now.difference(lastNotifyTime).inMilliseconds > 100 || receivedBytes == totalBytes) {
+        if (now.difference(lastNotifyTime).inMilliseconds > 100 ||
+            receivedBytes == totalBytes) {
           lastNotifyTime = now;
           final p = totalBytes > 0 ? (receivedBytes / totalBytes) : 0.0;
-          progressNotifier.value = DownloadProgress(
-            received: receivedBytes,
-            total: totalBytes,
-            progress: p,
-          );
+          progressNotifier.value =
+              DownloadProgress(received: receivedBytes, total: totalBytes, progress: p);
         }
       }
 
       await sink.flush();
       await sink.close();
 
-      // Đóng dialog tải
       if (context.mounted) {
         Navigator.of(context, rootNavigator: true).pop();
       }
 
-      // Kích hoạt trình cài đặt Android qua MethodChannel
-      final bool? success = await _channel.invokeMethod<bool>('installApk', {
-        'filePath': apkFile.path,
-      });
+      final bool? success =
+          await _channel.invokeMethod<bool>('installApk', {'filePath': apkFile.path});
 
       if (success != true && context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Không thể mở trình cài đặt APK. Vui lòng cấp quyền "Cài đặt ứng dụng không rõ nguồn gốc".'),
+            content: Text(
+                'Không thể mở trình cài đặt APK. Vui lòng cấp quyền "Cài đặt ứng dụng không rõ nguồn gốc".'),
             backgroundColor: Colors.red,
           ),
         );

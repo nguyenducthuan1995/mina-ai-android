@@ -74,6 +74,17 @@ jobs:
           echo "Added namespace to gradle.properties:"
           cat "$GRADLE_PROPS"
 
+      # Inject version từ pubspec.yaml vào OtaService — ngăn OTA loop vĩnh viễn
+      - name: Inject OTA Version Constants
+        run: |
+          VERSION=$(grep "^version:" pubspec.yaml | sed 's/version: //' | cut -d'+' -f1)
+          BUILD=$(grep "^version:" pubspec.yaml | sed 's/version: //' | cut -d'+' -f2)
+          echo "Injecting version=$VERSION build=$BUILD into OtaService"
+          sed -i "s/static const String currentVersion = '.*'; \/\/ CI_VERSION_PLACEHOLDER/static const String currentVersion = '$VERSION'; \/\/ CI_VERSION_PLACEHOLDER/" lib/services/ota_service.dart
+          sed -i "s/static const int currentBuildNumber = .*; \/\/ CI_BUILD_PLACEHOLDER/static const int currentBuildNumber = $BUILD; \/\/ CI_BUILD_PLACEHOLDER/" lib/services/ota_service.dart
+          echo "=== OTA constants after injection ==="
+          grep "CI_VERSION_PLACEHOLDER\|CI_BUILD_PLACEHOLDER" lib/services/ota_service.dart
+
       # Tạo file api_keys.dart từ GitHub Secrets (file bị gitignore, không có trong repo)
       - name: Create API Keys Config
         env:
@@ -99,6 +110,7 @@ jobs:
       # Build APK ở debug mode
       - name: Build APK (Debug Mode)
         run: flutter build apk --debug
+
 
       - name: Rename APK with prefix
         run: |
