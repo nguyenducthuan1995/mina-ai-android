@@ -308,7 +308,10 @@ class _VoiceCallScreenState extends State<VoiceCallScreen>
     });
   }
 
-  /// Khởi tạo Android SpeechRecognizer với locale tiếng Việt
+  // Android STT locale cache (set trong _initStt, dùng trong _startVietnameseStt)
+  String _sttLocale = 'vi_VN';
+
+  /// Khởi tạo Android SpeechRecognizer — chỉ chạy 1 lần khi màn hình mở
   Future<void> _initStt() async {
     try {
       _speechEnabled = await _stt.initialize(
@@ -323,32 +326,33 @@ class _VoiceCallScreenState extends State<VoiceCallScreen>
           }
         },
       );
-      print('VoiceCall: STT init: $_speechEnabled');
+
+      if (_speechEnabled) {
+        // Cache locale vi tốt nhất (chỉ check 1 lần khi init, tránh slow per-call check)
+        final locales = await _stt.locales();
+        final viLocale = locales.where((l) => l.localeId.startsWith('vi')).firstOrNull;
+        if (viLocale != null) {
+          _sttLocale = viLocale.localeId;
+          print('VoiceCall: STT vi locale: $_sttLocale');
+        } else {
+          _sttLocale = 'vi_VN'; // Thử trực tiếp dù không có trong list
+          print('VoiceCall: vi locale không có trong list, thử vi_VN trực tiếp');
+        }
+      }
+      print('VoiceCall: STT init: $_speechEnabled, locale: $_sttLocale');
     } catch (e) {
       print('VoiceCall: STT init thất bại: $e');
       _speechEnabled = false;
     }
   }
 
-  /// Bắt đầu lắng nghe tiếng Việt qua Android SpeechRecognizer (vi-VN)
-  /// Khi nhận dạng xong → gửi text lên server thay vì audio PCM
+  /// Bắt đầu lắng nghe tiếng Việt qua Android SpeechRecognizer
+  /// Text nhận được → gửi lên server thay vì audio PCM → Chinese ASR
   void _startVietnameseStt() async {
     if (!mounted || !_isConnected || _isAiSpeaking || _sttListening || _isManualExit) return;
 
     if (!_speechEnabled) {
-      // STT không available → fallback sang audio streaming cũ
-      print('VoiceCall: STT không khả dụng, dùng audio mode');
-      _startSpeakingFallback();
-      return;
-    }
-
-    // Kiểm tra locale vi-VN có sẵn không
-    final locales = await _stt.locales();
-    final hasVietnamese = locales.any(
-      (l) => l.localeId.startsWith('vi'),
-    );
-    if (!hasVietnamese) {
-      print('VoiceCall: Không có locale vi-VN, dùng audio mode');
+      print('VoiceCall: STT không khả dụng, dùng audio fallback');
       _startSpeakingFallback();
       return;
     }
@@ -362,14 +366,21 @@ class _VoiceCallScreenState extends State<VoiceCallScreen>
     _stt
         .listen(
           onResult: (result) {
-            if (!mounted || !result.finalResult) return;
+            if (!mounted) return;
             final text = result.recognizedWords.trim();
-            if (text.isEmpty) return;
 
-            print('VoiceCall STT recognized: "$text"');
+            // Partial result: hiển thị real-time để user thấy đang nhận
+            if (!result.finalResult && text.isNotEmpty) {
+              setState(() => _currentSubtitle = 'Bạn: $text...');
+              return;
+            }
+
+            if (!result.finalResult || text.isEmpty) return;
+
+            print('VoiceCall STT final: "$text"');
             _sttListening = false;
 
-            // Gửi text lên server (thay vì audio PCM → Chinese ASR)
+            // Gửi text tiếng Việt lên server (bypass Chinese ASR)
             _xiaozhiService.sendVoiceTextInput(text);
 
             if (mounted) {
@@ -389,13 +400,12 @@ class _VoiceCallScreenState extends State<VoiceCallScreen>
               });
             }
           },
-          localeId: 'vi_VN',
+          localeId: _sttLocale,
           cancelOnError: false,
-          partialResults: false,
-          pauseFor: const Duration(seconds: 2),
-          listenFor: const Duration(seconds: 60),
+          partialResults: true,                   // Real-time feedback
+          pauseFor: const Duration(seconds: 3),   // 3s im lặng → kết thúc
+          listenFor: const Duration(seconds: 60), // max 60s/phiên
           onSoundLevelChange: (level) {
-            // Cập nhật audio visualizer với mức âm thanh thực
             if (mounted && _isSpeaking) {
               final normalizedLevel = (level / 10.0).clamp(0.05, 0.95);
               setState(() {
@@ -409,14 +419,18 @@ class _VoiceCallScreenState extends State<VoiceCallScreen>
         )
         .then((_) {
           _sttListening = false;
-          // Tự động restart sau khi timeout/done (nếu chưa có kết quả và AI không nói)
-          if (mounted && _isConnected && !_isAiSpeaking && !_isManualExit && _isSpeaking) {
+          // Tự động restart sau khi timeout hoặc done
+          if (mounted && _isConnected && !_isAiSpeaking && !_isManualExit) {
+            setState(() {
+              _isSpeaking = false;
+              _statusText = '🎤 Đang lắng nghe tiếng Việt...';
+            });
             Future.delayed(const Duration(milliseconds: 200), _startVietnameseStt);
           }
         });
   }
 
-  /// Fallback: audio streaming cũ (dùng khi không có STT vi-VN)
+    /// Fallback: audio streaming cũ (dùng khi không có STT vi-VN)
   void _startSpeakingFallback() {
     if (!_isSpeaking) {
       setState(() {
@@ -798,9 +812,7 @@ class _VoiceCallScreenState extends State<VoiceCallScreen>
     final isWorking = _isConnected;
     final text = _isAiSpeaking
         ? 'Mina AI đang nói... (Chạm để ngắt lời)'
-        : (_isSpeaking
-            ? 'Đang lắng nghe liên tục...'
-            : (_isConnected ? 'Sẵn sàng • Chạm để nói' : _statusText));
+        : (_isConnected ? _statusText : _statusText);
 
     return Material(
       color: Colors.transparent,
