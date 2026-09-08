@@ -134,13 +134,13 @@ class _AutomotiveMapViewState extends State<AutomotiveMapView>
                 userAgentPackageName: 'com.lhht.ai_assistant',
               ),
 
-              // Layer 2: TomTom Traffic Flow overlay — tình trạng tắc đường thực tế nổi bật trên nền tối
-              // Xanh = thông thoáng, vàng = chậm, đỏ = tắc đường
+              // Layer 2: TomTom Traffic Flow overlay — CHỈ hiện đường tắc thực sự (relative)
+              // absolute hiện MỌI đường → cam/đỏ phủ kín. relative chỉ hiện đường chậm hơn bình thường
               Opacity(
-                opacity: 0.85,
+                opacity: 0.45,
                 child: TileLayer(
                   urlTemplate:
-                      'https://api.tomtom.com/traffic/map/4/tile/flow/absolute/{z}/{x}/{y}.png'
+                      'https://api.tomtom.com/traffic/map/4/tile/flow/relative/{z}/{x}/{y}.png'
                       '?key=${ApiKeys.tomtom}&tileSize=256',
                   userAgentPackageName: 'com.lhht.ai_assistant',
                 ),

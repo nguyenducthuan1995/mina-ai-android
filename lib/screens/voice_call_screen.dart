@@ -470,21 +470,25 @@ class _VoiceCallScreenState extends State<VoiceCallScreen>
         )
         .then((_) {
           _sttListening = false;
-          // Nếu timer debounce vẫn đang đếm ngược (người dùng có thể còn nói tiếp câu):
-          // Lập tức khởi động lại STT để bắt các từ tiếp theo không bị ngắt quãng!
-          if (_sentenceDebounceTimer != null && _sentenceDebounceTimer!.isActive) {
-            if (mounted && _isConnected && !_isAiSpeaking && !_isManualExit) {
-              _startVietnameseStt();
+          if (!mounted || !_isConnected || _isAiSpeaking || _isManualExit) return;
+
+          // Nếu có câu đang tích lũy nhưng debounce chưa fire → ĐỢI debounce tự gửi
+          // KHÔNG restart STT ngay vì STT mới có thể bắt noise → cancel debounce → text bị kẹt
+          if (_accumulatedSentence.trim().isNotEmpty) {
+            // Debounce timer sẽ tự fire sau 2.2s → gửi text → trong _scheduleSentenceSend
+            // không restart STT ở đây. STT sẽ restart sau khi AI nói xong (tts.stop handler)
+            print('VoiceCall STT: Session ended, waiting for debounce to send: "$_accumulatedSentence"');
+            // Đảm bảo debounce timer đang chạy
+            if (_sentenceDebounceTimer == null || !_sentenceDebounceTimer!.isActive) {
+              _scheduleSentenceSend();
             }
           } else {
             // Không có câu dở dang -> khởi động lại bình thường sau 300ms
-            if (mounted && _isConnected && !_isAiSpeaking && !_isManualExit) {
-              setState(() {
-                _isSpeaking = false;
-                _statusText = '🎤 Đang lắng nghe tiếng Việt...';
-              });
-              Future.delayed(const Duration(milliseconds: 300), _startVietnameseStt);
-            }
+            setState(() {
+              _isSpeaking = false;
+              _statusText = '🎤 Đang lắng nghe tiếng Việt...';
+            });
+            Future.delayed(const Duration(milliseconds: 300), _startVietnameseStt);
           }
         });
   }
