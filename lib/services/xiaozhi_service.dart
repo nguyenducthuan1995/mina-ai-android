@@ -341,12 +341,34 @@ class XiaozhiService {
   /// Gửi text từ Android STT tiếng Việt lên server (thay thế audio PCM)
   /// Server nhận "listen.detect" với text → xử lý như spoken input → trả lời bằng TTS
   void sendVoiceTextInput(String text) {
-    if (_webSocketManager != null && _isConnected) {
-      _webSocketManager!.sendTextRequest(text);
-      print('$TAG: [STT→Server] Đã gửi text tiếng Việt: $text');
-    } else {
-      print('$TAG: [STT→Server] Không thể gửi, chưa kết nối WebSocket');
+    if (_webSocketManager == null || !_isConnected || _sessionId == null) {
+      print('$TAG: [STT→Server] Không thể gửi — chưa kết nối hoặc chưa có session_id');
+      return;
     }
+
+    // Bước 1: Gửi listen start để server chuyển sang trạng thái listening
+    final listenStart = {
+      'session_id': _sessionId,
+      'type': 'listen',
+      'state': 'start',
+      'mode': 'auto',
+    };
+    _webSocketManager!.sendMessage(jsonEncode(listenStart));
+    print('$TAG: [STT→Server] Đã gửi listen start (session=$_sessionId)');
+
+    // Bước 2: Gửi text detect ngay sau đó (với session_id!)
+    Future.delayed(const Duration(milliseconds: 100), () {
+      if (_webSocketManager == null || !_isConnected) return;
+      final detectMsg = {
+        'session_id': _sessionId,
+        'type': 'listen',
+        'state': 'detect',
+        'text': text,
+        'source': 'text',
+      };
+      _webSocketManager!.sendMessage(jsonEncode(detectMsg));
+      print('$TAG: [STT→Server] Đã gửi text detect: $text (session=$_sessionId)');
+    });
   }
 
   /// Kết nối voice call — truyền systemPrompt của persona để gửi lên server

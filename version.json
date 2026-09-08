@@ -1,8 +1,8 @@
 {
-  "version": "2.0.8",
-  "version_code": 10,
-  "title": "Mina AI v2.0.8 — Fix AI Phản Hồi + Bản Đồ Sạch",
-  "changelog": "• Fix AI không phản hồi sau khi nhận diện giọng nói\n• Bản đồ sạch sẽ: traffic chỉ hiện đường tắc thực sự (bỏ cam/đỏ phủ kín)\n• DeepL dịch thuật Việt↔Đức (Mina Phiên Dịch)\n• Cải thiện STT gom câu dài\n• Hỗ trợ Du/Sie trong dịch tiếng Đức",
+  "version": "2.0.9",
+  "version_code": 11,
+  "title": "Mina AI v2.0.9 — Fix AI Phản Hồi + Nút Nói Dịch Thuật",
+  "changelog": "• Fix critical: AI giờ sẽ phản hồi (thêm session_id + listen start trước detect)\n• Màn hình dịch thuật: thêm nút 🎤 NÓI cho xe ô tô (bấm giữ để nói)\n• Bản đồ sạch: traffic chỉ hiện đường tắc thực sự\n• Cải thiện STT gom câu tiếng Việt\n• DeepL dịch Việt↔Đức với Du/Sie",
   "apk_url": "https://github.com/nguyenducthuan1995/mina-ai-android/releases/latest/download/MinaAI-debug.apk",
   "force_update": false
 }

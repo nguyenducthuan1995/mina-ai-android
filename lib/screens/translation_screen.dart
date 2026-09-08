@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:speech_to_text/speech_to_text.dart' as stt_lib;
 import 'package:ai_assistant/services/deepl_service.dart';
 
 /// Màn hình dịch thuật Việt ↔ Đức chuyên nghiệp sử dụng DeepL API
@@ -27,10 +28,16 @@ class _TranslationScreenState extends State<TranslationScreen> {
   // Debounce cho auto-translate
   Timer? _autoTranslateTimer;
 
+  // Speech-to-text cho nút 🎤 bấm giữ nói
+  final stt_lib.SpeechToText _stt = stt_lib.SpeechToText();
+  bool _sttAvailable = false;
+  bool _isListening = false;
+
   @override
   void initState() {
     super.initState();
     _loadUsage();
+    _initStt();
   }
 
   @override
@@ -38,7 +45,74 @@ class _TranslationScreenState extends State<TranslationScreen> {
     _inputController.dispose();
     _inputFocusNode.dispose();
     _autoTranslateTimer?.cancel();
+    if (_isListening) _stt.stop();
     super.dispose();
+  }
+
+  Future<void> _initStt() async {
+    _sttAvailable = await _stt.initialize(
+      onError: (error) {
+        print('TranslationScreen STT error: $error');
+        if (mounted) setState(() => _isListening = false);
+      },
+      onStatus: (status) {
+        if (status == 'done' || status == 'notListening') {
+          if (mounted) {
+            setState(() => _isListening = false);
+            // Auto-translate khi ngừng nói
+            if (_inputController.text.trim().isNotEmpty) _translate();
+          }
+        }
+      },
+    );
+  }
+
+  /// Bắt đầu nghe giọng nói (bấm nút 🎤)
+  void _startListening() {
+    if (!_sttAvailable) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Không có quyền microphone hoặc STT không khả dụng')),
+      );
+      return;
+    }
+
+    // Chọn locale phù hợp với ngôn ngữ nguồn
+    final locale = _sourceLang == 'VI' ? 'vi-VN'
+        : _sourceLang == 'DE' ? 'de-DE'
+        : _sourceLang == 'FR' ? 'fr-FR'
+        : _sourceLang == 'ZH' ? 'zh-CN'
+        : _sourceLang == 'JA' ? 'ja-JP'
+        : _sourceLang == 'KO' ? 'ko-KR'
+        : 'en-US';
+
+    setState(() => _isListening = true);
+
+    _stt.listen(
+      onResult: (result) {
+        if (mounted) {
+          setState(() {
+            _inputController.text = result.recognizedWords;
+            _inputController.selection = TextSelection.fromPosition(
+              TextPosition(offset: _inputController.text.length),
+            );
+          });
+        }
+      },
+      localeId: locale,
+      partialResults: true,
+      listenFor: const Duration(seconds: 30),
+      pauseFor: const Duration(seconds: 3),
+    );
+  }
+
+  /// Dừng nghe
+  void _stopListening() {
+    _stt.stop();
+    setState(() => _isListening = false);
+    // Auto-translate
+    if (_inputController.text.trim().isNotEmpty) {
+      _translate();
+    }
   }
 
   Future<void> _loadUsage() async {
@@ -443,48 +517,94 @@ class _TranslationScreenState extends State<TranslationScreen> {
   }
 
   Widget _buildTranslateButton() {
-    return SizedBox(
-      width: double.infinity,
-      height: 50,
-      child: ElevatedButton(
-        onPressed: _isTranslating ? null : _translate,
-        style: ElevatedButton.styleFrom(
-          backgroundColor: const Color(0xFF2563EB),
-          disabledBackgroundColor: const Color(0xFF93C5FD),
-          foregroundColor: Colors.white,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(14),
-          ),
-          elevation: 2,
-          shadowColor: const Color(0xFF2563EB).withOpacity(0.3),
-        ),
-        child: _isTranslating
-            ? const Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  SizedBox(
-                    width: 20, height: 20,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2.5,
-                      color: Colors.white,
+    return Row(
+      children: [
+        // Nút 🎤 Bấm để nói (QUAN TRỌNG cho xe ô tô!)
+        Expanded(
+          flex: 1,
+          child: SizedBox(
+            height: 50,
+            child: GestureDetector(
+              onTapDown: (_) => _startListening(),
+              onTapUp: (_) => _stopListening(),
+              onTapCancel: () => _stopListening(),
+              child: Container(
+                decoration: BoxDecoration(
+                  color: _isListening ? const Color(0xFFEF4444) : const Color(0xFF10B981),
+                  borderRadius: BorderRadius.circular(14),
+                  boxShadow: [
+                    BoxShadow(
+                      color: (_isListening ? const Color(0xFFEF4444) : const Color(0xFF10B981))
+                          .withOpacity(0.3),
+                      blurRadius: 8,
+                      offset: const Offset(0, 3),
                     ),
-                  ),
-                  SizedBox(width: 10),
-                  Text('Đang dịch...', style: TextStyle(fontSize: 16)),
-                ],
-              )
-            : const Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.translate_rounded, size: 22),
-                  SizedBox(width: 8),
-                  Text(
-                    'Dịch ngay',
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                  ),
-                ],
+                  ],
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      _isListening ? Icons.stop_rounded : Icons.mic_rounded,
+                      color: Colors.white,
+                      size: 24,
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      _isListening ? 'Đang nghe...' : 'Nói',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 15,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
               ),
-      ),
+            ),
+          ),
+        ),
+        const SizedBox(width: 10),
+        // Nút Dịch ngay
+        Expanded(
+          flex: 1,
+          child: SizedBox(
+            height: 50,
+            child: ElevatedButton(
+              onPressed: _isTranslating ? null : _translate,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF2563EB),
+                disabledBackgroundColor: const Color(0xFF93C5FD),
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                elevation: 2,
+              ),
+              child: _isTranslating
+                  ? const Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        SizedBox(
+                          width: 18, height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2.5, color: Colors.white),
+                        ),
+                        SizedBox(width: 8),
+                        Text('Đang dịch...', style: TextStyle(fontSize: 14)),
+                      ],
+                    )
+                  : const Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.translate_rounded, size: 20),
+                        SizedBox(width: 6),
+                        Text('Dịch ngay', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
+                      ],
+                    ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 
