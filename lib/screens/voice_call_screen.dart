@@ -46,6 +46,10 @@ class _VoiceCallScreenState extends State<VoiceCallScreen>
   bool _speechEnabled = false;   // STT đã init thành công
   bool _sttListening = false;    // Đang lắng nghe qua Android STT
 
+  // Biến tích lũy câu nói và bộ đếm chờ nói xong (tránh ngắt câu giữa chừng khi nói cả câu dài)
+  String _accumulatedSentence = '';
+  Timer? _sentenceDebounceTimer;
+
 
   late AnimationController _animationController;
   final List<double> _audioLevels = List.filled(24, 0.08);
@@ -138,7 +142,9 @@ class _VoiceCallScreenState extends State<VoiceCallScreen>
         final state = message['state'] ?? '';
         final text = message['text'] ?? '';
         if (state == 'start') {
-          // AI bắt đầu nói → dừng STT để tránh AI nghe tiếng mình
+          // AI bắt đầu nói → dừng timer debounce, reset câu đang nói, dừng STT
+          _sentenceDebounceTimer?.cancel();
+          _accumulatedSentence = '';
           _stt.stop();
           _sttListening = false;
           setState(() {
@@ -196,6 +202,7 @@ class _VoiceCallScreenState extends State<VoiceCallScreen>
   void dispose() {
     _isManualExit = true;
     _callTimer?.cancel();
+    _sentenceDebounceTimer?.cancel();
     _audioVisualizerTimer?.cancel();
     _animationController.dispose();
     _stt.cancel(); // Dừng Android STT
@@ -347,8 +354,44 @@ class _VoiceCallScreenState extends State<VoiceCallScreen>
     }
   }
 
+  /// Lên lịch gửi câu hoàn chỉnh sau khi người dùng thực sự im lặng 2.2 giây
+  void _scheduleSentenceSend() {
+    _sentenceDebounceTimer?.cancel();
+    _sentenceDebounceTimer = Timer(const Duration(milliseconds: 2200), () {
+      if (!mounted || !_isConnected || _isAiSpeaking || _isManualExit) return;
+      final fullText = _accumulatedSentence.trim();
+      _accumulatedSentence = '';
+
+      if (fullText.isEmpty) return;
+
+      print('VoiceCall STT: [Gửi trọn vẹn cả câu] "$fullText"');
+      _sttListening = false;
+      _stt.stop();
+
+      // Gửi toàn bộ câu nói hoàn chỉnh lên server (bypass Chinese ASR)
+      _xiaozhiService.sendVoiceTextInput(fullText);
+
+      if (mounted) {
+        final lower = fullText.toLowerCase();
+        final isNav = lower.contains('dẫn đường') ||
+            lower.contains('chỉ đường') ||
+            lower.contains('bản đồ') ||
+            lower.contains('tìm đường') ||
+            lower.contains('đi đến') ||
+            lower.contains('đi tới');
+        setState(() {
+          _currentSubtitle = isNav
+              ? 'Bạn: $fullText\n🚗 Đang mở Google Maps...'
+              : 'Bạn: $fullText';
+          _statusText = 'Mina AI đang suy nghĩ...';
+          _isSpeaking = false;
+        });
+      }
+    });
+  }
+
   /// Bắt đầu lắng nghe tiếng Việt qua Android SpeechRecognizer
-  /// Text nhận được → gửi lên server thay vì audio PCM → Chinese ASR
+  /// Tích lũy các chặng nói và dùng debounce 2.2s để gom đủ cả câu 10 từ
   void _startVietnameseStt() async {
     if (!mounted || !_isConnected || _isAiSpeaking || _sttListening || _isManualExit) return;
 
@@ -371,51 +414,42 @@ class _VoiceCallScreenState extends State<VoiceCallScreen>
             final text = result.recognizedWords.trim();
 
             if (!result.finalResult) {
-              // Partial result: cache + hiển thị real-time
+              // Partial result: hiển thị câu đang nói real-time
               if (text.isNotEmpty) {
-                _lastPartialResult = text; // Cache để dùng khi final rỗng
-                setState(() => _currentSubtitle = 'Bạn: $text...');
+                _lastPartialResult = text;
+                final preview = _accumulatedSentence.isEmpty
+                    ? text
+                    : '$_accumulatedSentence $text';
+                setState(() => _currentSubtitle = 'Bạn: $preview...');
+                // Reset timer nếu người dùng vẫn đang tiếp tục nói
+                _sentenceDebounceTimer?.cancel();
               }
               return;
             }
 
-            // Final result: dùng text thực, hoặc fallback sang partial cuối
-            final finalText = text.isNotEmpty ? text : _lastPartialResult;
+            // Khi một chặng nhận diện hoàn tất (người dùng ngắt hơi ngắn)
+            final segmentText = text.isNotEmpty ? text : _lastPartialResult;
             _lastPartialResult = '';
-            _sttListening = false;
 
-            if (finalText.isEmpty) {
-              print('VoiceCall STT: final rỗng, bỏ qua');
-              return;
+            if (segmentText.isNotEmpty) {
+              if (_accumulatedSentence.isEmpty) {
+                _accumulatedSentence = segmentText;
+              } else if (!_accumulatedSentence.contains(segmentText)) {
+                _accumulatedSentence = '$_accumulatedSentence $segmentText';
+              }
+              setState(() => _currentSubtitle = 'Bạn: $_accumulatedSentence');
             }
 
-            print('VoiceCall STT final: "$finalText"');
-
-            // Gửi text tiếng Việt lên server (bypass Chinese ASR)
-            _xiaozhiService.sendVoiceTextInput(finalText);
-
-            if (mounted) {
-              final lower = finalText.toLowerCase();
-              final isNav = lower.contains('dẫn đường') ||
-                  lower.contains('chỉ đường') ||
-                  lower.contains('bản đồ') ||
-                  lower.contains('tìm đường') ||
-                  lower.contains('đi đến') ||
-                  lower.contains('đi tới');
-              setState(() {
-                _currentSubtitle = isNav
-                    ? 'Bạn: $finalText\n🚗 Đang mở Google Maps...'
-                    : 'Bạn: $finalText';
-                _statusText = 'Mina AI đang suy nghĩ...';
-                _isSpeaking = false;
-              });
+            // Bắt đầu đếm ngược 2.2s để chờ xem người dùng có nói thêm từ nào nữa không
+            if (_accumulatedSentence.isNotEmpty) {
+              _scheduleSentenceSend();
             }
           },
           localeId: _sttLocale,
           cancelOnError: false,
-          partialResults: true,                   // Real-time feedback
-          pauseFor: const Duration(seconds: 3),   // 3s im lặng → kết thúc
-          listenFor: const Duration(seconds: 60), // max 60s/phiên
+          partialResults: true,
+          pauseFor: const Duration(seconds: 4),   // 4s im lặng trước khi SpeechRecognizer tự ngắt
+          listenFor: const Duration(seconds: 90), // max 90s/phiên
           onSoundLevelChange: (level) {
             if (mounted && _isSpeaking) {
               final normalizedLevel = (level / 10.0).clamp(0.05, 0.95);
@@ -430,33 +464,26 @@ class _VoiceCallScreenState extends State<VoiceCallScreen>
         )
         .then((_) {
           _sttListening = false;
-          // Nếu session kết thúc mà còn partial result chưa gửi → gửi luôn
-          if (_lastPartialResult.isNotEmpty && mounted && _isConnected) {
-            final fallbackText = _lastPartialResult;
-            _lastPartialResult = '';
-            print('VoiceCall STT: dùng partial fallback: "$fallbackText"');
-            _xiaozhiService.sendVoiceTextInput(fallbackText);
-            if (mounted) {
-              setState(() {
-                _currentSubtitle = 'Bạn: $fallbackText';
-                _statusText = 'Mina AI đang suy nghĩ...';
-                _isSpeaking = false;
-              });
+          // Nếu timer debounce vẫn đang đếm ngược (người dùng có thể còn nói tiếp câu):
+          // Lập tức khởi động lại STT để bắt các từ tiếp theo không bị ngắt quãng!
+          if (_sentenceDebounceTimer != null && _sentenceDebounceTimer!.isActive) {
+            if (mounted && _isConnected && !_isAiSpeaking && !_isManualExit) {
+              _startVietnameseStt();
             }
           } else {
-            // Không có gì → restart sau 500ms
+            // Không có câu dở dang -> khởi động lại bình thường sau 300ms
             if (mounted && _isConnected && !_isAiSpeaking && !_isManualExit) {
               setState(() {
                 _isSpeaking = false;
                 _statusText = '🎤 Đang lắng nghe tiếng Việt...';
               });
-              Future.delayed(const Duration(milliseconds: 500), _startVietnameseStt);
+              Future.delayed(const Duration(milliseconds: 300), _startVietnameseStt);
             }
           }
         });
   }
 
-    /// Fallback: audio streaming cũ (dùng khi không có STT vi-VN)
+  /// Fallback: audio streaming cũ (dùng khi không có STT vi-VN)
   void _startSpeakingFallback() {
     if (!_isSpeaking) {
       setState(() {
@@ -522,43 +549,39 @@ class _VoiceCallScreenState extends State<VoiceCallScreen>
         backgroundColor: const Color(0xFF0F172A),
       extendBody: true,
       extendBodyBehindAppBar: true,
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        leading: Container(
-          margin: const EdgeInsets.only(left: 12, top: 8),
-          decoration: BoxDecoration(
-            color: Colors.white.withOpacity(0.15),
-            shape: BoxShape.circle,
-          ),
-          child: IconButton(
-            icon: const Icon(Icons.arrow_back, color: Colors.white, size: 24),
-            onPressed: () {
-              _isManualExit = true;
-              _xiaozhiService.stopPlayback();
-              _xiaozhiService.disconnectVoiceCall();
-              Navigator.pop(context);
-            },
-          ),
-        ),
-      ),
+      appBar: (isLandscape && isCarMode)
+          ? null
+          : AppBar(
+              backgroundColor: Colors.transparent,
+              elevation: 0,
+              leading: Container(
+                margin: const EdgeInsets.only(left: 12, top: 8),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.15),
+                  shape: BoxShape.circle,
+                ),
+                child: IconButton(
+                  icon: const Icon(Icons.arrow_back, color: Colors.white, size: 24),
+                  onPressed: () {
+                    _isManualExit = true;
+                    _xiaozhiService.stopPlayback();
+                    _xiaozhiService.disconnectVoiceCall();
+                    Navigator.pop(context);
+                  },
+                ),
+              ),
+            ),
       body: Container(
         width: double.infinity,
         height: double.infinity,
         decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [
-              Color(0xFF0F172A),
-              Color(0xFF1E293B),
-              Color(0xFF0A192F),
-            ],
-          ),
+          color: Color(0xFF0B1120),
         ),
-        child: SafeArea(
-          child: isLandscape ? _buildLandscapeLayout() : _buildPortraitLayout(),
-        ),
+        child: (isLandscape && isCarMode)
+            ? _buildLandscapeCarLayout()
+            : SafeArea(
+                child: isLandscape ? _buildLandscapeLayout() : _buildPortraitLayout(),
+              ),
       ),
     ),
   );
@@ -569,68 +592,188 @@ class _VoiceCallScreenState extends State<VoiceCallScreen>
       widget.conversation.title.toLowerCase().contains('lái xe') ||
       widget.conversation.id.contains('car');
 
-  Widget _buildLandscapeLayout() {
-    if (isCarMode) {
-      return Padding(
-        padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
-        child: Row(
-          children: [
-            // Cột bên trái (40%): Mina AI Lái Xe
-            Expanded(
-              flex: 4,
-              child: SingleChildScrollView(
-                physics: const BouncingScrollPhysics(),
+  /// Giao diện chế độ Xe Hơi Landscape (Giống Lily AI): Bản đồ tràn viền 100% bên phải, sidebar gọn gàng bên trái
+  Widget _buildLandscapeCarLayout() {
+    final screenWidth = MediaQuery.of(context).size.width;
+    // Sidebar chiếm ~28% bề ngang màn hình (tối thiểu 240px, tối đa 310px)
+    final sidebarWidth = (screenWidth * 0.28).clamp(240.0, 310.0);
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // --- CỘT TRÁI: MINA AI SIDEBAR (28% bề ngang) ---
+        SizedBox(
+          width: sidebarWidth,
+          child: Container(
+            decoration: BoxDecoration(
+              color: const Color(0xFF0F172A),
+              border: Border(
+                right: BorderSide(
+                  color: Colors.white.withOpacity(0.08),
+                  width: 1.5,
+                ),
+              ),
+            ),
+            child: SafeArea(
+              top: true,
+              bottom: true,
+              left: true,
+              right: false,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
                 child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    _buildAvatar(size: 72),
-                    const SizedBox(height: 6),
-                    Text(
-                      widget.conversation.title.isEmpty
-                          ? 'Mina Lái Xe'
-                          : widget.conversation.title,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                        letterSpacing: 0.5,
-                      ),
+                    // Header gồm nút Back tròn tinh tế và Tên trợ lý
+                    Row(
+                      children: [
+                        Container(
+                          width: 34,
+                          height: 34,
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(0.12),
+                            shape: BoxShape.circle,
+                          ),
+                          child: IconButton(
+                            padding: EdgeInsets.zero,
+                            icon: const Icon(Icons.arrow_back, color: Colors.white, size: 18),
+                            onPressed: () {
+                              _isManualExit = true;
+                              _xiaozhiService.stopPlayback();
+                              _xiaozhiService.disconnectVoiceCall();
+                              Navigator.pop(context);
+                            },
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            widget.conversation.title.isEmpty ? 'Mina Lái Xe' : widget.conversation.title,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 15,
+                              fontWeight: FontWeight.bold,
+                              letterSpacing: 0.3,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
                     ),
                     const SizedBox(height: 4),
-                    _buildStatusBadge(),
+
+                    // Thân cuộn mượt
+                    Expanded(
+                      child: SingleChildScrollView(
+                        physics: const BouncingScrollPhysics(),
+                        child: Column(
+                          children: [
+                            _buildAvatar(size: 48),
+                            const SizedBox(height: 4),
+                            _buildStatusBadge(),
+                            const SizedBox(height: 6),
+                            _buildSubtitleCard(),
+                            const SizedBox(height: 6),
+                            _buildAudioVisualizer(height: 24),
+                          ],
+                        ),
+                      ),
+                    ),
+
                     const SizedBox(height: 6),
-                    _buildSubtitleCard(),
-                    const SizedBox(height: 6),
-                    _buildAudioVisualizer(height: 38),
-                    const SizedBox(height: 10),
+                    // Hàng nút điều khiển ở đáy sidebar
                     _buildControlButtonsRow(),
                   ],
                 ),
               ),
             ),
-            const SizedBox(width: 14),
-            // Cột bên phải (60%): Bản đồ dẫn đường ô tô trực tiếp
-            Expanded(
-              flex: 6,
-              child: AutomotiveMapView(
-                onOpenExternalMaps: () {
-                  _showCustomSnackbar(
-                    message: 'Đang mở Google Maps dẫn đường...',
-                    icon: Icons.navigation_rounded,
-                    iconColor: Colors.blueAccent,
-                  );
-                },
-                onSelectPoi: (dest) {
-                  _showCustomSnackbar(
-                    message: 'Đang dẫn đường tới $dest...',
-                    icon: Icons.navigation_rounded,
-                    iconColor: Colors.greenAccent,
-                  );
-                },
+          ),
+        ),
+
+        // --- CỘT PHẢI: BẢN ĐỒ DẪN ĐƯỜNG TRÀN VIỀN 100% (72% BỀ NGANG, SÁT MÉP TRÊN/DƯỚI/PHẢI) ---
+        Expanded(
+          child: AutomotiveMapView(
+            onOpenExternalMaps: () {
+              _showCustomSnackbar(
+                message: 'Đang mở Google Maps dẫn đường...',
+                icon: Icons.navigation_rounded,
+                iconColor: Colors.blueAccent,
+              );
+            },
+            onSelectPoi: (dest) {
+              _showCustomSnackbar(
+                message: 'Đang dẫn đường tới $dest...',
+                icon: Icons.navigation_rounded,
+                iconColor: Colors.greenAccent,
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildLandscapeLayout() {
+    if (isCarMode) {
+      return Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // Cột bên trái (30%): Mina AI Lái Xe — sidebar hẹp, fill toàn chiều cao
+          SizedBox(
+            width: MediaQuery.of(context).size.width * 0.30,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(12, 6, 8, 8),
+              child: SingleChildScrollView(
+                physics: const BouncingScrollPhysics(),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    _buildAvatar(size: 60),
+                    const SizedBox(height: 4),
+                    Text(
+                      widget.conversation.title.isEmpty
+                          ? 'Mina Lái Xe'
+                          : widget.conversation.title,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 15,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 0.5,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    _buildStatusBadge(),
+                    const SizedBox(height: 4),
+                    _buildSubtitleCard(),
+                    const SizedBox(height: 4),
+                    _buildAudioVisualizer(height: 30),
+                    const SizedBox(height: 8),
+                    _buildControlButtonsRow(),
+                  ],
+                ),
               ),
             ),
-          ],
-        ),
+          ),
+          // Cột bên phải (70%): Bản đồ dẫn đường — fill toàn chiều dọc và ngang còn lại
+          Expanded(
+            child: AutomotiveMapView(
+              onOpenExternalMaps: () {
+                _showCustomSnackbar(
+                  message: 'Đang mở Google Maps dẫn đường...',
+                  icon: Icons.navigation_rounded,
+                  iconColor: Colors.blueAccent,
+                );
+              },
+              onSelectPoi: (dest) {
+                _showCustomSnackbar(
+                  message: 'Đang dẫn đường tới $dest...',
+                  icon: Icons.navigation_rounded,
+                  iconColor: Colors.greenAccent,
+                );
+              },
+            ),
+          ),
+        ],
       );
     }
 

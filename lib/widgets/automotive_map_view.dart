@@ -107,10 +107,8 @@ class _AutomotiveMapViewState extends State<AutomotiveMapView>
 
   @override
   Widget build(BuildContext context) {
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(20),
-      child: Stack(
-        children: [
+    return Stack(
+      children: [
           // --- Lớp bản đồ FlutterMap ---
           FlutterMap(
             mapController: _mapController,
@@ -127,20 +125,19 @@ class _AutomotiveMapViewState extends State<AutomotiveMapView>
               },
             ),
             children: [
-              // Layer 1: TomTom Basic Map tiles — chất lượng cao, ngôn ngữ tiếng Đức
+              // Layer 1: TomTom Basic Night Map tiles — tông màu tối dẫn đường sang trọng chuẩn xe hơi (giống Lily AI)
               // Free tier: 50,000 tiles/ngày — đủ dùng thoải mái
               TileLayer(
                 urlTemplate:
-                    'https://api.tomtom.com/map/1/tile/basic/main/{z}/{x}/{y}.png'
+                    'https://api.tomtom.com/map/1/tile/basic/night/{z}/{x}/{y}.png'
                     '?key=${ApiKeys.tomtom}&language=de&tileSize=256',
                 userAgentPackageName: 'com.lhht.ai_assistant',
               ),
 
-              // Layer 2: TomTom Traffic Flow overlay — tình trạng tắc đường thực tế
+              // Layer 2: TomTom Traffic Flow overlay — tình trạng tắc đường thực tế nổi bật trên nền tối
               // Xanh = thông thoáng, vàng = chậm, đỏ = tắc đường
-              // Dùng Opacity widget thay vì opacity param (không có trong flutter_map v7)
               Opacity(
-                opacity: 0.7,
+                opacity: 0.85,
                 child: TileLayer(
                   urlTemplate:
                       'https://api.tomtom.com/traffic/map/4/tile/flow/absolute/{z}/{x}/{y}.png'
@@ -196,8 +193,7 @@ class _AutomotiveMapViewState extends State<AutomotiveMapView>
               left: 14,
               child: _buildGpsWarning(),
             ),
-        ],
-      ),
+      ],
     );
   }
 
