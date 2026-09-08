@@ -8,9 +8,11 @@ import 'package:ai_assistant/models/assistant_persona.dart';
 import 'package:ai_assistant/providers/conversation_provider.dart';
 import 'package:ai_assistant/services/xiaozhi_service.dart';
 import 'package:ai_assistant/services/automotive_tool_service.dart';
+import 'package:speech_to_text/speech_to_text.dart';
 import '../widgets/automotive_map_view.dart';
 import 'dart:async';
 import 'dart:io';
+
 
 class VoiceCallScreen extends StatefulWidget {
   final Conversation conversation;
@@ -38,6 +40,12 @@ class _VoiceCallScreenState extends State<VoiceCallScreen>
   Duration _callDuration = Duration.zero;
   bool _serverReady = false;
   bool _isManualExit = false;
+
+  // Android STT (tiếng Việt) — thay thế audio PCM gửi lên server
+  final SpeechToText _stt = SpeechToText();
+  bool _speechEnabled = false;   // STT đã init thành công
+  bool _sttListening = false;    // Đang lắng nghe qua Android STT
+
 
   late AnimationController _animationController;
   final List<double> _audioLevels = List.filled(24, 0.08);
@@ -79,6 +87,7 @@ class _VoiceCallScreenState extends State<VoiceCallScreen>
 
     _connectToVoiceService();
     _startAudioVisualizer();
+    _initStt(); // Khởi tạo Android STT tiếng Việt
   }
 
   void _handleServiceEvent(XiaozhiServiceEvent event) {
@@ -122,13 +131,16 @@ class _VoiceCallScreenState extends State<VoiceCallScreen>
 
         Future.delayed(const Duration(milliseconds: 500), () {
           if (mounted && _isConnected && !_isSpeaking) {
-            _startSpeaking();
+            _startVietnameseStt();
           }
         });
       } else if (type == 'tts') {
         final state = message['state'] ?? '';
         final text = message['text'] ?? '';
         if (state == 'start') {
+          // AI bắt đầu nói → dừng STT để tránh AI nghe tiếng mình
+          _stt.stop();
+          _sttListening = false;
           setState(() {
             _isAiSpeaking = true;
             _isSpeaking = false;
@@ -144,8 +156,14 @@ class _VoiceCallScreenState extends State<VoiceCallScreen>
         } else if (state == 'stop') {
           setState(() {
             _isAiSpeaking = false;
-            _isSpeaking = true;
-            _statusText = 'Đang lắng nghe liên tục...';
+            _isSpeaking = false;
+            _statusText = '🎤 Đang lắng nghe tiếng Việt...';
+          });
+          // AI nói xong → restart Android STT để nghe tiếp
+          Future.delayed(const Duration(milliseconds: 400), () {
+            if (mounted && _isConnected && !_isAiSpeaking && !_isManualExit) {
+              _startVietnameseStt();
+            }
           });
         }
       } else if (type == 'stt') {
@@ -180,6 +198,7 @@ class _VoiceCallScreenState extends State<VoiceCallScreen>
     _callTimer?.cancel();
     _audioVisualizerTimer?.cancel();
     _animationController.dispose();
+    _stt.cancel(); // Dừng Android STT
     _xiaozhiService.removeListener(_handleServiceEvent);
     _xiaozhiService.setMessageListener(null);
     _xiaozhiService.disconnectVoiceCall();
@@ -228,7 +247,7 @@ class _VoiceCallScreenState extends State<VoiceCallScreen>
         // Kích hoạt Micro lắng nghe sau khi kết nối hoàn tất
         Future.delayed(const Duration(milliseconds: 500), () {
           if (mounted && _isConnected && !_isSpeaking && !_isAiSpeaking) {
-            _startSpeaking();
+            _startVietnameseStt();
           }
         });
       } else {
@@ -289,7 +308,116 @@ class _VoiceCallScreenState extends State<VoiceCallScreen>
     });
   }
 
-  void _startSpeaking() {
+  /// Khởi tạo Android SpeechRecognizer với locale tiếng Việt
+  Future<void> _initStt() async {
+    try {
+      _speechEnabled = await _stt.initialize(
+        onError: (error) {
+          print('VoiceCall STT Error: ${error.errorMsg}');
+          _sttListening = false;
+        },
+        onStatus: (status) {
+          print('VoiceCall STT Status: $status');
+          if (status == 'done' || status == 'notListening') {
+            _sttListening = false;
+          }
+        },
+      );
+      print('VoiceCall: STT init: $_speechEnabled');
+    } catch (e) {
+      print('VoiceCall: STT init thất bại: $e');
+      _speechEnabled = false;
+    }
+  }
+
+  /// Bắt đầu lắng nghe tiếng Việt qua Android SpeechRecognizer (vi-VN)
+  /// Khi nhận dạng xong → gửi text lên server thay vì audio PCM
+  void _startVietnameseStt() async {
+    if (!mounted || !_isConnected || _isAiSpeaking || _sttListening || _isManualExit) return;
+
+    if (!_speechEnabled) {
+      // STT không available → fallback sang audio streaming cũ
+      print('VoiceCall: STT không khả dụng, dùng audio mode');
+      _startSpeakingFallback();
+      return;
+    }
+
+    // Kiểm tra locale vi-VN có sẵn không
+    final locales = await _stt.locales();
+    final hasVietnamese = locales.any(
+      (l) => l.localeId.startsWith('vi'),
+    );
+    if (!hasVietnamese) {
+      print('VoiceCall: Không có locale vi-VN, dùng audio mode');
+      _startSpeakingFallback();
+      return;
+    }
+
+    setState(() {
+      _isSpeaking = true;
+      _sttListening = true;
+      _statusText = '🎤 Đang lắng nghe tiếng Việt...';
+    });
+
+    _stt
+        .listen(
+          onResult: (result) {
+            if (!mounted || !result.finalResult) return;
+            final text = result.recognizedWords.trim();
+            if (text.isEmpty) return;
+
+            print('VoiceCall STT recognized: "$text"');
+            _sttListening = false;
+
+            // Gửi text lên server (thay vì audio PCM → Chinese ASR)
+            _xiaozhiService.sendVoiceTextInput(text);
+
+            if (mounted) {
+              final lower = text.toLowerCase();
+              final isNav = lower.contains('dẫn đường') ||
+                  lower.contains('chỉ đường') ||
+                  lower.contains('bản đồ') ||
+                  lower.contains('tìm đường') ||
+                  lower.contains('đi đến') ||
+                  lower.contains('đi tới');
+              setState(() {
+                _currentSubtitle = isNav
+                    ? 'Bạn: $text\n🚗 Đang mở Google Maps...'
+                    : 'Bạn: $text';
+                _statusText = 'Mina AI đang suy nghĩ...';
+                _isSpeaking = false;
+              });
+            }
+          },
+          localeId: 'vi_VN',
+          cancelOnError: false,
+          partialResults: false,
+          pauseFor: const Duration(seconds: 2),
+          listenFor: const Duration(seconds: 60),
+          onSoundLevelChange: (level) {
+            // Cập nhật audio visualizer với mức âm thanh thực
+            if (mounted && _isSpeaking) {
+              final normalizedLevel = (level / 10.0).clamp(0.05, 0.95);
+              setState(() {
+                for (int i = 0; i < _audioLevels.length - 1; i++) {
+                  _audioLevels[i] = _audioLevels[i + 1];
+                }
+                _audioLevels[_audioLevels.length - 1] = normalizedLevel;
+              });
+            }
+          },
+        )
+        .then((_) {
+          _sttListening = false;
+          // Tự động restart sau khi timeout/done (nếu chưa có kết quả và AI không nói)
+          if (mounted && _isConnected && !_isAiSpeaking && !_isManualExit && _isSpeaking) {
+            Future.delayed(const Duration(milliseconds: 200), _startVietnameseStt);
+          }
+        });
+  }
+
+  /// Fallback: audio streaming cũ (dùng khi không có STT vi-VN)
+  void _startSpeakingFallback() {
     if (!_isSpeaking) {
       setState(() {
         _isSpeaking = true;
@@ -299,17 +427,11 @@ class _VoiceCallScreenState extends State<VoiceCallScreen>
       _xiaozhiService
           .startListeningCall()
           .then((_) {
-            if (mounted) {
-              print('VoiceCall: Đã bắt đầu thu âm');
-            }
+            if (mounted) print('VoiceCall: Đã bắt đầu thu âm (fallback mode)');
           })
           .catchError((e) {
-            print('VoiceCall: Bắt đầu thu âm thất bại: $e');
-            if (mounted) {
-              setState(() {
-                _isSpeaking = false;
-              });
-            }
+            print('VoiceCall: Thu âm thất bại: $e');
+            if (mounted) setState(() => _isSpeaking = false);
           });
     }
   }
@@ -332,7 +454,7 @@ class _VoiceCallScreenState extends State<VoiceCallScreen>
 
     Future.delayed(const Duration(milliseconds: 300), () {
       if (mounted) {
-        _startSpeaking();
+        _startVietnameseStt();
       }
     });
   }
@@ -632,7 +754,7 @@ class _VoiceCallScreenState extends State<VoiceCallScreen>
         } else if (_isAiSpeaking) {
           _sendAbortMessage();
         } else if (!_isSpeaking) {
-          _startSpeaking();
+          _startVietnameseStt();
         }
       },
       child: Container(
@@ -690,7 +812,7 @@ class _VoiceCallScreenState extends State<VoiceCallScreen>
           } else if (_isAiSpeaking) {
             _sendAbortMessage();
           } else if (!_isSpeaking) {
-            _startSpeaking();
+            _startVietnameseStt();
           }
         },
         child: Container(
@@ -845,7 +967,7 @@ class _VoiceCallScreenState extends State<VoiceCallScreen>
                   _statusText = 'Tạm dừng (Chạm để nghe)';
                 });
               } else {
-                _startSpeaking();
+                _startVietnameseStt();
               }
             },
           ),

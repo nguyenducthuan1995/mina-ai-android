@@ -338,6 +338,17 @@ class XiaozhiService {
     }
   }
 
+  /// Gửi text từ Android STT tiếng Việt lên server (thay thế audio PCM)
+  /// Server nhận "listen.detect" với text → xử lý như spoken input → trả lời bằng TTS
+  void sendVoiceTextInput(String text) {
+    if (_webSocketManager != null && _isConnected) {
+      _webSocketManager!.sendTextRequest(text);
+      print('$TAG: [STT→Server] Đã gửi text tiếng Việt: $text');
+    } else {
+      print('$TAG: [STT→Server] Không thể gửi, chưa kết nối WebSocket');
+    }
+  }
+
   /// Kết nối voice call — truyền systemPrompt của persona để gửi lên server
   Future<bool> connectVoiceCall({String? systemPrompt}) async {
     _isVoiceCallActive = true;
