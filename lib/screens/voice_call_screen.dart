@@ -434,8 +434,14 @@ class _VoiceCallScreenState extends State<VoiceCallScreen>
             if (segmentText.isNotEmpty) {
               if (_accumulatedSentence.isEmpty) {
                 _accumulatedSentence = segmentText;
-              } else if (!_accumulatedSentence.contains(segmentText)) {
-                _accumulatedSentence = '$_accumulatedSentence $segmentText';
+              } else {
+                // Chỉ bỏ qua nếu segment mới hoàn toàn giống hệt câu đã tích lũy
+                // (do SpeechRecognizer gửi lại kết quả trùng lặp)
+                // Còn lại luôn nối thêm để không nuốt chữ lặp hợp lệ
+                if (segmentText != _accumulatedSentence &&
+                    !_accumulatedSentence.endsWith(segmentText)) {
+                  _accumulatedSentence = '$_accumulatedSentence $segmentText';
+                }
               }
               setState(() => _currentSubtitle = 'Bạn: $_accumulatedSentence');
             }
@@ -504,6 +510,11 @@ class _VoiceCallScreenState extends State<VoiceCallScreen>
   }
 
   void _sendAbortMessage() {
+    // Hủy mọi debounce đang đếm ngược và xóa câu đang tích lũy
+    _sentenceDebounceTimer?.cancel();
+    _accumulatedSentence = '';
+    _lastPartialResult = '';
+
     _xiaozhiService.sendAbortMessage();
     setState(() {
       _isAiSpeaking = false;
@@ -713,70 +724,7 @@ class _VoiceCallScreenState extends State<VoiceCallScreen>
   }
 
   Widget _buildLandscapeLayout() {
-    if (isCarMode) {
-      return Row(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          // Cột bên trái (30%): Mina AI Lái Xe — sidebar hẹp, fill toàn chiều cao
-          SizedBox(
-            width: MediaQuery.of(context).size.width * 0.30,
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(12, 6, 8, 8),
-              child: SingleChildScrollView(
-                physics: const BouncingScrollPhysics(),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    _buildAvatar(size: 60),
-                    const SizedBox(height: 4),
-                    Text(
-                      widget.conversation.title.isEmpty
-                          ? 'Mina Lái Xe'
-                          : widget.conversation.title,
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 15,
-                        fontWeight: FontWeight.bold,
-                        letterSpacing: 0.5,
-                      ),
-                    ),
-                    const SizedBox(height: 3),
-                    _buildStatusBadge(),
-                    const SizedBox(height: 4),
-                    _buildSubtitleCard(),
-                    const SizedBox(height: 4),
-                    _buildAudioVisualizer(height: 30),
-                    const SizedBox(height: 8),
-                    _buildControlButtonsRow(),
-                  ],
-                ),
-              ),
-            ),
-          ),
-          // Cột bên phải (70%): Bản đồ dẫn đường — fill toàn chiều dọc và ngang còn lại
-          Expanded(
-            child: AutomotiveMapView(
-              onOpenExternalMaps: () {
-                _showCustomSnackbar(
-                  message: 'Đang mở Google Maps dẫn đường...',
-                  icon: Icons.navigation_rounded,
-                  iconColor: Colors.blueAccent,
-                );
-              },
-              onSelectPoi: (dest) {
-                _showCustomSnackbar(
-                  message: 'Đang dẫn đường tới $dest...',
-                  icon: Icons.navigation_rounded,
-                  iconColor: Colors.greenAccent,
-                );
-              },
-            ),
-          ),
-        ],
-      );
-    }
-
+    // CarMode sử dụng _buildLandscapeCarLayout() — được gọi trực tiếp từ build()
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
       child: Row(
