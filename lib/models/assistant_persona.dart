@@ -167,6 +167,26 @@ class AssistantPersona {
         'Top những bài hát nhạc trẻ Việt Nam hay nhất',
       ],
     ),
+    AssistantPersona(
+      id: 'mina_translate',
+      name: 'Mina Phiên Dịch',
+      subtitle: 'Dịch Việt ↔ Đức chuyên nghiệp (DeepL)',
+      category: 'Công việc',
+      icon: Icons.translate_rounded,
+      iconColor: Color(0xFF0891B2),
+      iconBgColor: Color(0xFFE0F2FE),
+      badgeText: '🌍 Việt ↔ Đức',
+      isHot: true,
+      systemPrompt: '',
+      greetingMessage:
+          'Chào bạn! Tôi là Mina Phiên Dịch — dịch thuật Việt ↔ Đức chuyên nghiệp bằng DeepL AI. '
+          'Hỗ trợ phong cách trang trọng (Sie) hoặc thân mật (Du). Bạn muốn dịch gì nào?',
+      quickPrompts: [
+        'Dịch sang tiếng Đức: Xin chào, tôi muốn đặt lịch hẹn',
+        'Dịch sang tiếng Việt: Ich möchte einen Termin vereinbaren',
+        'Dịch hợp đồng lao động từ tiếng Đức sang tiếng Việt',
+      ],
+    ),
   ];
 
   static AssistantPersona? findById(String id) {

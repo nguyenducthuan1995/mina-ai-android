@@ -8,6 +8,7 @@ import 'package:ai_assistant/providers/conversation_provider.dart';
 import 'package:ai_assistant/providers/config_provider.dart';
 import 'package:ai_assistant/screens/chat_screen.dart';
 import 'package:ai_assistant/screens/voice_call_screen.dart';
+import 'package:ai_assistant/screens/translation_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:ai_assistant/services/ota_service.dart';
 import 'package:ai_assistant/services/xiaozhi_activation_service.dart';
@@ -614,6 +615,17 @@ class _AssistantSelectionScreenState extends State<AssistantSelectionScreen> {
     }
 
     if (!context.mounted) return;
+
+    // Persona dịch thuật → mở TranslationScreen riêng (không cần WebSocket / XiaoZhi)
+    if (persona.id == 'mina_translate') {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => const TranslationScreen(),
+        ),
+      );
+      return;
+    }
 
     if (startVoiceCall) {
       final effectiveConfig = configProvider.xiaozhiConfigs.firstWhere(
