@@ -308,8 +308,9 @@ class _VoiceCallScreenState extends State<VoiceCallScreen>
     });
   }
 
-  // Android STT locale cache (set trong _initStt, dùng trong _startVietnameseStt)
+  // Android STT locale cache (set trong _initStt) + last partial result cache
   String _sttLocale = 'vi_VN';
+  String _lastPartialResult = ''; // Fallback khi final result rỗng
 
   /// Khởi tạo Android SpeechRecognizer — chỉ chạy 1 lần khi màn hình mở
   Future<void> _initStt() async {
@@ -369,22 +370,32 @@ class _VoiceCallScreenState extends State<VoiceCallScreen>
             if (!mounted) return;
             final text = result.recognizedWords.trim();
 
-            // Partial result: hiển thị real-time để user thấy đang nhận
-            if (!result.finalResult && text.isNotEmpty) {
-              setState(() => _currentSubtitle = 'Bạn: $text...');
+            if (!result.finalResult) {
+              // Partial result: cache + hiển thị real-time
+              if (text.isNotEmpty) {
+                _lastPartialResult = text; // Cache để dùng khi final rỗng
+                setState(() => _currentSubtitle = 'Bạn: $text...');
+              }
               return;
             }
 
-            if (!result.finalResult || text.isEmpty) return;
-
-            print('VoiceCall STT final: "$text"');
+            // Final result: dùng text thực, hoặc fallback sang partial cuối
+            final finalText = text.isNotEmpty ? text : _lastPartialResult;
+            _lastPartialResult = '';
             _sttListening = false;
 
+            if (finalText.isEmpty) {
+              print('VoiceCall STT: final rỗng, bỏ qua');
+              return;
+            }
+
+            print('VoiceCall STT final: "$finalText"');
+
             // Gửi text tiếng Việt lên server (bypass Chinese ASR)
-            _xiaozhiService.sendVoiceTextInput(text);
+            _xiaozhiService.sendVoiceTextInput(finalText);
 
             if (mounted) {
-              final lower = text.toLowerCase();
+              final lower = finalText.toLowerCase();
               final isNav = lower.contains('dẫn đường') ||
                   lower.contains('chỉ đường') ||
                   lower.contains('bản đồ') ||
@@ -393,8 +404,8 @@ class _VoiceCallScreenState extends State<VoiceCallScreen>
                   lower.contains('đi tới');
               setState(() {
                 _currentSubtitle = isNav
-                    ? 'Bạn: $text\n🚗 Đang mở Google Maps...'
-                    : 'Bạn: $text';
+                    ? 'Bạn: $finalText\n🚗 Đang mở Google Maps...'
+                    : 'Bạn: $finalText';
                 _statusText = 'Mina AI đang suy nghĩ...';
                 _isSpeaking = false;
               });
@@ -419,13 +430,28 @@ class _VoiceCallScreenState extends State<VoiceCallScreen>
         )
         .then((_) {
           _sttListening = false;
-          // Tự động restart sau khi timeout hoặc done
-          if (mounted && _isConnected && !_isAiSpeaking && !_isManualExit) {
-            setState(() {
-              _isSpeaking = false;
-              _statusText = '🎤 Đang lắng nghe tiếng Việt...';
-            });
-            Future.delayed(const Duration(milliseconds: 200), _startVietnameseStt);
+          // Nếu session kết thúc mà còn partial result chưa gửi → gửi luôn
+          if (_lastPartialResult.isNotEmpty && mounted && _isConnected) {
+            final fallbackText = _lastPartialResult;
+            _lastPartialResult = '';
+            print('VoiceCall STT: dùng partial fallback: "$fallbackText"');
+            _xiaozhiService.sendVoiceTextInput(fallbackText);
+            if (mounted) {
+              setState(() {
+                _currentSubtitle = 'Bạn: $fallbackText';
+                _statusText = 'Mina AI đang suy nghĩ...';
+                _isSpeaking = false;
+              });
+            }
+          } else {
+            // Không có gì → restart sau 500ms
+            if (mounted && _isConnected && !_isAiSpeaking && !_isManualExit) {
+              setState(() {
+                _isSpeaking = false;
+                _statusText = '🎤 Đang lắng nghe tiếng Việt...';
+              });
+              Future.delayed(const Duration(milliseconds: 500), _startVietnameseStt);
+            }
           }
         });
   }
