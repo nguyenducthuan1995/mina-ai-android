@@ -472,18 +472,53 @@ class _VoiceCallScreenState extends State<VoiceCallScreen>
           _sttListening = false;
           if (!mounted || !_isConnected || _isAiSpeaking || _isManualExit) return;
 
-          // Nếu có câu đang tích lũy nhưng debounce chưa fire → ĐỢI debounce tự gửi
-          // KHÔNG restart STT ngay vì STT mới có thể bắt noise → cancel debounce → text bị kẹt
+          // Cứu partial result cuối cùng nếu SpeechRecognizer kết thúc mà
+          // KHÔNG gửi finalResult (bug trên một số Android head unit)
+          if (_accumulatedSentence.trim().isEmpty && _lastPartialResult.trim().isNotEmpty) {
+            print('VoiceCall STT: Rescuing partial result as sentence: "$_lastPartialResult"');
+            _accumulatedSentence = _lastPartialResult.trim();
+            _lastPartialResult = '';
+            setState(() => _currentSubtitle = 'Bạn: $_accumulatedSentence');
+          }
+
+          // Nếu có câu đang tích lũy → lên lịch gửi (hoặc đảm bảo timer đang chạy)
+          // KHÔNG restart STT ngay vì STT mới bắt noise → cancel debounce → text kẹt
           if (_accumulatedSentence.trim().isNotEmpty) {
-            // Debounce timer sẽ tự fire sau 2.2s → gửi text → trong _scheduleSentenceSend
-            // không restart STT ở đây. STT sẽ restart sau khi AI nói xong (tts.stop handler)
-            print('VoiceCall STT: Session ended, waiting for debounce to send: "$_accumulatedSentence"');
-            // Đảm bảo debounce timer đang chạy
-            if (_sentenceDebounceTimer == null || !_sentenceDebounceTimer!.isActive) {
-              _scheduleSentenceSend();
-            }
+            print('VoiceCall STT: Session ended, scheduling send: "$_accumulatedSentence"');
+            _sentenceDebounceTimer?.cancel();
+            // Gửi ngay sau 1s (không chờ 2.2s nữa vì STT đã kết thúc = người dùng đã nói xong)
+            _sentenceDebounceTimer = Timer(const Duration(milliseconds: 1000), () {
+              if (!mounted || !_isConnected || _isAiSpeaking || _isManualExit) return;
+              final fullText = _accumulatedSentence.trim();
+              _accumulatedSentence = '';
+              _lastPartialResult = '';
+
+              if (fullText.isEmpty) return;
+
+              print('VoiceCall STT: [Gửi sau session end] "$fullText"');
+              _stt.stop();
+
+              _xiaozhiService.sendVoiceTextInput(fullText);
+
+              if (mounted) {
+                final lower = fullText.toLowerCase();
+                final isNav = lower.contains('dẫn đường') ||
+                    lower.contains('chỉ đường') ||
+                    lower.contains('bản đồ') ||
+                    lower.contains('tìm đường') ||
+                    lower.contains('đi đến') ||
+                    lower.contains('đi tới');
+                setState(() {
+                  _currentSubtitle = isNav
+                      ? 'Bạn: $fullText\n🚗 Đang mở Google Maps...'
+                      : 'Bạn: $fullText';
+                  _statusText = 'Mina AI đang suy nghĩ...';
+                  _isSpeaking = false;
+                });
+              }
+            });
           } else {
-            // Không có câu dở dang -> khởi động lại bình thường sau 300ms
+            // Không có câu nào → khởi động lại lắng nghe bình thường
             setState(() {
               _isSpeaking = false;
               _statusText = '🎤 Đang lắng nghe tiếng Việt...';
